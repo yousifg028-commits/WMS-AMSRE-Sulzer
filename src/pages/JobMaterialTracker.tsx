@@ -4,17 +4,16 @@ import { useWMSStore } from '../store';
 import { format } from '../utils/helpers';
 
 export default function JobMaterialTracker() {
-  const { stockOutRecords, jobs, batchLedger, masterItems } = useWMSStore();
+  const { stockOutRecords, jobs, batchLedger } = useWMSStore();
   const [search, setSearch] = useState('');
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [showDetail, setShowDetail] = useState<string | null>(null);
 
   const jobMaterialRecords = useMemo(() => {
     return stockOutRecords.filter(r => {
-      const item = masterItems.find(i => i.id === r.itemId);
-      return item && item.trackerGroup === 'Job Material';
+      return r.jobNumber && r.jobNumber.trim() !== '';
     });
-  }, [stockOutRecords, masterItems]);
+  }, [stockOutRecords]);
 
   const jobSummary = useMemo(() => {
     return jobs.map(job => {

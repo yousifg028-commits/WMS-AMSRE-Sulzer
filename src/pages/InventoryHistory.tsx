@@ -4,20 +4,15 @@ import { useWMSStore } from '../store';
 import { format } from '../utils/helpers';
 
 export default function InventoryHistory() {
-  const { stockInRecords, stockOutRecords, stockAdjustments, masterItems } = useWMSStore();
+  const { stockInRecords, stockOutRecords, stockAdjustments } = useWMSStore();
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  const isUntracked = (itemId: string) => {
-    const item = masterItems.find(i => i.id === itemId);
-    return !item || item.trackerGroup === '';
-  };
-
   const allTransactions = useMemo(() => {
     const txns = [
-      ...stockInRecords.filter(r => isUntracked(r.itemId)).map(r => ({
+      ...stockInRecords.map(r => ({
         type: 'Stock In' as const,
         date: r.receiptDate,
         reference: r.grnNumber,
@@ -28,7 +23,7 @@ export default function InventoryHistory() {
         details: `From: ${r.supplier}`,
         createdAt: r.createdAt,
       })),
-      ...stockOutRecords.filter(r => isUntracked(r.itemId)).map(r => ({
+      ...stockOutRecords.map(r => ({
         type: 'Stock Out' as const,
         date: r.issueDate,
         reference: r.issueNumber,
@@ -36,10 +31,10 @@ export default function InventoryHistory() {
         itemName: r.itemName,
         quantity: -r.quantity,
         batchId: r.batchId,
-        details: `To: ${r.employeeName}`,
+        details: `To: ${r.employeeName}${r.jobNumber ? ' | Job: ' + r.jobNumber : ''}`,
         createdAt: r.createdAt,
       })),
-      ...stockAdjustments.filter(r => isUntracked(r.itemId)).map(r => ({
+      ...stockAdjustments.map(r => ({
         type: 'Adjustment' as const,
         date: r.adjustmentDate,
         reference: r.adjustmentNumber,
@@ -59,7 +54,7 @@ export default function InventoryHistory() {
       const matchTo = !dateTo || txn.date <= dateTo;
       return matchSearch && matchType && matchFrom && matchTo;
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [stockInRecords, stockOutRecords, stockAdjustments, masterItems, search, filterType, dateFrom, dateTo]);
+  }, [stockInRecords, stockOutRecords, stockAdjustments, search, filterType, dateFrom, dateTo]);
 
   const stats = useMemo(() => {
     const stockIn = allTransactions.filter(t => t.type === 'Stock In').length;
