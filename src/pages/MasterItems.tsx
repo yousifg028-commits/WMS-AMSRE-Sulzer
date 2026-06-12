@@ -1,0 +1,351 @@
+import { useState, useMemo } from 'react';
+import { Plus, Edit2, Trash2, Printer, Search, Download, Archive, RotateCcw } from 'lucide-react';
+import { useWMSStore } from '../store';
+import type { MasterItem } from '../types';
+import { Modal } from '../components/ui/Modal';
+import { exportToExcel, exportToCSV } from '../utils/helpers';
+
+const categories = ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'];
+const units = ['Box', 'Piece', 'Pair', 'Drum', 'Pack(100)', 'Bucket(20L)', 'Roll', 'Set', 'Kit', 'Ream', 'Box(100)', 'Pack(50)'];
+
+const categoryPrefix: Record<string, string> = {
+  'PPE': 'PPE', 'Chemical': 'CHE', 'Spare Parts': 'SPR',
+  'Lubricant': 'LUB', 'Consumable': 'CON', 'Stationery': 'STA', 'Quality': 'QC',
+};
+
+function generateItemCode(category: string, existingItems: MasterItem[]): string {
+  const prefix = categoryPrefix[category] || 'ITM';
+  const nextNum = existingItems.length + 1;
+  return `${prefix}-${String(nextNum).padStart(3, '0')}`;
+}
+
+const emptyItem: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'> = {
+  itemCode: '', itemName: '', category: '', subcategory: '', unitOfMeasure: 'Piece',
+  location: '', trackerGroup: '', batchControlled: true, fefoEnabled: false,
+  minimumStock: 0, maximumStock: 0, reorderLevel: 0, standardShelfLife: 0,
+  manufacturer: '', supplier: '', msdsRequired: false, msdsLink: '',
+  fifoRequired: false, remarks: '', status: 'Active',
+};
+
+export default function MasterItems() {
+  const { masterItems, addItem, updateItem, archiveItem, restoreItem, deleteItem } = useWMSStore();
+  const [search, setSearch] = useState('');
+  const [filterCat, setFilterCat] = useState('');
+  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
+  const [showModal, setShowModal] = useState(false);
+  const [editItem, setEditItem] = useState<MasterItem | null>(null);
+  const [formData, setFormData] = useState(emptyItem);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  const duplicateName = formData.itemName && masterItems.find(i => i.itemName.toLowerCase() === formData.itemName.toLowerCase() && i.id !== editItem?.id);
+
+  const filtered = useMemo(() => {
+    const statusFilter = activeTab === 'active' ? 'Active' : 'Archived';
+    return masterItems.filter(item => {
+      const matchStatus = item.status === statusFilter;
+      const matchSearch = !search || item.itemCode.toLowerCase().includes(search.toLowerCase()) || item.itemName.toLowerCase().includes(search.toLowerCase());
+      const matchCat = !filterCat || item.category === filterCat;
+      return matchStatus && matchSearch && matchCat;
+    });
+  }, [masterItems, search, filterCat, activeTab]);
+
+  const openCreate = () => {
+    setEditItem(null);
+    const code = generateItemCode(categories[0], masterItems);
+    setFormData({ ...emptyItem, itemCode: code, category: categories[0] });
+    setShowModal(true);
+  };
+
+  const openEdit = (item: MasterItem) => {
+    setEditItem(item);
+    setFormData({ ...item });
+    setShowModal(true);
+  };
+
+  const handleSave = () => {
+    if (!formData.itemCode || !formData.itemName) return;
+    const duplicate = masterItems.find(i => i.itemName.toLowerCase() === formData.itemName.toLowerCase() && i.id !== editItem?.id);
+    if (duplicate) {
+      if (!window.confirm(`Item "${formData.itemName}" already exists (${duplicate.itemCode}). Do you want to create it anyway?`)) {
+        return;
+      }
+    }
+    if (editItem) { updateItem(editItem.id, formData); } else { addItem(formData); }
+    setShowModal(false);
+  };
+
+  const handleCategoryChange = (category: string) => {
+    if (!editItem) {
+      setFormData({ ...formData, category, itemCode: generateItemCode(category, masterItems) });
+    } else {
+      setFormData({ ...formData, category });
+    }
+  };
+
+  const handleDelete = (item: MasterItem) => {
+    if (window.confirm(`Are you sure you want to permanently delete "${item.itemName}"?`)) {
+      deleteItem(item.id);
+    }
+  };
+
+  const handlePrint = (item: MasterItem) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    printWindow.document.write(`
+      <html><head><title>Item Details - ${item.itemCode}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        h1 { color: #1e40af; border-bottom: 2px solid #1e40af; padding-bottom: 10px; }
+        .logo { font-size: 12px; color: #666; margin-bottom: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+        th { background: #f3f4f6; font-weight: bold; width: 200px; }
+        @media print { body { padding: 10px; } }
+      </style></head><body>
+      <div class="logo">AMSER - Sulzer</div>
+      <h1>Item Details</h1>
+      <table>
+        <tr><th>Item Code</th><td>${item.itemCode}</td></tr>
+        <tr><th>Item Name</th><td>${item.itemName}</td></tr>
+        <tr><th>Category</th><td>${item.category}</td></tr>
+        <tr><th>Subcategory</th><td>${item.subcategory || '-'}</td></tr>
+        <tr><th>Unit</th><td>${item.unitOfMeasure}</td></tr>
+        <tr><th>Location</th><td>${item.location || '-'}</td></tr>
+        <tr><th>Tracker Group</th><td>${item.trackerGroup || 'None'}</td></tr>
+        <tr><th>Batch Controlled</th><td>${item.batchControlled ? 'Yes' : 'No'}</td></tr>
+        <tr><th>FEFO Enabled</th><td>${item.fefoEnabled ? 'Yes' : 'No'}</td></tr>
+        <tr><th>Min Stock</th><td>${item.minimumStock}</td></tr>
+        <tr><th>Max Stock</th><td>${item.maximumStock}</td></tr>
+        <tr><th>MSDS Required</th><td>${item.msdsRequired ? 'Yes' : 'No'}</td></tr>
+        <tr><th>FIFO Required</th><td>${item.fifoRequired ? 'Yes' : 'No'}</td></tr>
+        <tr><th>Remarks</th><td>${item.remarks || '-'}</td></tr>
+        <tr><th>Status</th><td>${item.status}</td></tr>
+      </table>
+      <p style="margin-top: 20px; font-size: 11px; color: #999;">Printed on: ${new Date().toLocaleString()}</p>
+      <script>window.onload = function() { window.print(); }</script>
+      </body></html>
+    `);
+    printWindow.document.close();
+  };
+
+  const handleExport = (format: 'csv' | 'excel') => {
+    const data = filtered.map(item => ({
+      'Item Code': item.itemCode, 'Item Name': item.itemName, 'Category': item.category,
+      'Subcategory': item.subcategory, 'Unit': item.unitOfMeasure, 'Location': item.location,
+      'Tracker Group': item.trackerGroup || 'None', 'Batch Controlled': item.batchControlled ? 'Yes' : 'No',
+      'FEFO': item.fefoEnabled ? 'Yes' : 'No', 'Min Stock': item.minimumStock, 'Max Stock': item.maximumStock,
+      'Manufacturer': item.manufacturer, 'Supplier': item.supplier,
+      'MSDS Required': item.msdsRequired ? 'Yes' : 'No', 'MSDS Link': item.msdsLink,
+      'FIFO Required': item.fifoRequired ? 'Yes' : 'No', 'Remarks': item.remarks, 'Status': item.status,
+    }));
+    if (format === 'csv') exportToCSV(data, 'master-items');
+    else exportToExcel(data, 'master-items');
+    setShowExportMenu(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Master Items</h1>
+          <p className="text-sm text-gray-500 mt-1">Manage your inventory items catalog</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <button onClick={() => setShowExportMenu(!showExportMenu)} className="btn-secondary flex items-center gap-2">
+              <Download className="w-4 h-4" /> Export
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1 w-36">
+                <button onClick={() => handleExport('csv')} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">CSV</button>
+                <button onClick={() => handleExport('excel')} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50">Excel</button>
+              </div>
+            )}
+          </div>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Add Item
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button onClick={() => setActiveTab('active')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Items</button>
+        <button onClick={() => setActiveTab('archived')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'archived' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived Items</button>
+      </div>
+
+      <div className="card">
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input type="text" placeholder="Search by code or name..." value={search} onChange={(e) => setSearch(e.target.value)} className="input-field pl-10" />
+          </div>
+          <select value={filterCat} onChange={(e) => setFilterCat(e.target.value)} className="select-field w-40">
+            <option value="">All Categories</option>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="table-header">
+                <th className="px-4 py-3 text-left">Item Code</th>
+                <th className="px-4 py-3 text-left">Item Name</th>
+                <th className="px-4 py-3 text-left">Category</th>
+                <th className="px-4 py-3 text-left">Location</th>
+                <th className="px-4 py-3 text-left">Unit</th>
+                <th className="px-4 py-3 text-center">Tracker Group</th>
+                <th className="px-4 py-3 text-center">Batch</th>
+                <th className="px-4 py-3 text-center">FEFO</th>
+                <th className="px-4 py-3 text-left">Min</th>
+                <th className="px-4 py-3 text-left">Max</th>
+                <th className="px-4 py-3 text-center">MSDS</th>
+                <th className="px-4 py-3 text-center">FIFO</th>
+                <th className="px-4 py-3 text-center">Status</th>
+                <th className="px-4 py-3 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filtered.map(item => (
+                <tr key={item.id} className="hover:bg-gray-50">
+                  <td className="table-cell font-medium text-blue-600">{item.itemCode}</td>
+                  <td className="table-cell">{item.itemName}</td>
+                  <td className="table-cell">{item.category}</td>
+                  <td className="table-cell">{item.location}</td>
+                  <td className="table-cell">{item.unitOfMeasure}</td>
+                  <td className="table-cell text-center">{item.trackerGroup ? <span className="badge-blue">{item.trackerGroup}</span> : <span className="badge-gray">-</span>}</td>
+                  <td className="table-cell text-center">{item.batchControlled ? <span className="badge-blue">Yes</span> : <span className="badge-gray">No</span>}</td>
+                  <td className="table-cell text-center">{item.fefoEnabled ? <span className="badge-green">Yes</span> : <span className="badge-gray">No</span>}</td>
+                  <td className="table-cell">{item.minimumStock}</td>
+                  <td className="table-cell">{item.maximumStock}</td>
+                  <td className="table-cell text-center">{item.msdsRequired ? <span className="badge-red">Yes</span> : <span className="badge-gray">No</span>}</td>
+                  <td className="table-cell text-center">{item.fifoRequired ? <span className="badge-green">Yes</span> : <span className="badge-gray">No</span>}</td>
+                  <td className="table-cell text-center">
+                    <span className={item.status === 'Active' ? 'badge-green' : 'badge-gray'}>{item.status}</span>
+                  </td>
+                  <td className="table-cell text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => openEdit(item)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600" title="Edit"><Edit2 className="w-4 h-4" /></button>
+                      {activeTab === 'active' ? (
+                        <button onClick={() => archiveItem(item.id)} className="p-1.5 hover:bg-orange-50 rounded-lg text-orange-600" title="Archive"><Archive className="w-4 h-4" /></button>
+                      ) : (
+                        <button onClick={() => restoreItem(item.id)} className="p-1.5 hover:bg-yellow-50 rounded-lg text-yellow-600" title="Restore"><RotateCcw className="w-4 h-4" /></button>
+                      )}
+                      <button onClick={() => handleDelete(item)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                      <button onClick={() => handlePrint(item)} className="p-1.5 hover:bg-green-50 rounded-lg text-green-600" title="Print"><Printer className="w-4 h-4" /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr><td colSpan={14} className="px-4 py-12 text-center text-gray-500">No items found</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-4 text-sm text-gray-500">Showing {filtered.length} of {masterItems.length} items</div>
+      </div>
+
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editItem ? 'Edit Item' : 'Create Item'} maxWidth="max-w-3xl">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label-field">Item Code *</label>
+            <input type="text" value={formData.itemCode} readOnly className="input-field bg-gray-100 cursor-not-allowed" placeholder="Auto-generated" />
+          </div>
+          <div>
+            <label className="label-field">Item Name *</label>
+            <input type="text" value={formData.itemName} onChange={(e) => setFormData({ ...formData, itemName: e.target.value })} className={`input-field ${duplicateName ? 'border-red-500' : ''}`} placeholder="Enter item name" />
+            {duplicateName && <p className="text-red-500 text-xs mt-1">This item name already exists ({duplicateName.itemCode})</p>}
+          </div>
+          <div>
+            <label className="label-field">Category</label>
+            <select value={formData.category} onChange={(e) => handleCategoryChange(e.target.value)} className="select-field" disabled={!!editItem}>
+              <option value="">Select category</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label-field">Subcategory (Type)</label>
+            <input type="text" value={formData.subcategory} onChange={(e) => setFormData({ ...formData, subcategory: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Unit of Measure</label>
+            <select value={formData.unitOfMeasure} onChange={(e) => setFormData({ ...formData, unitOfMeasure: e.target.value })} className="select-field">
+              {units.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label-field">Location</label>
+            <input type="text" value={formData.location} onChange={(e) => setFormData({ ...formData, location: e.target.value })} className="input-field" placeholder="e.g. Warehouse A, Shelf 3" />
+          </div>
+          <div>
+            <label className="label-field">Tracker Group</label>
+            <select value={formData.trackerGroup} onChange={(e) => setFormData({ ...formData, trackerGroup: e.target.value as typeof formData.trackerGroup })} className="select-field">
+              <option value="">None</option>
+              <option value="PPE">PPE</option>
+              <option value="Stationery">Stationery</option>
+              <option value="Job Material">Job Material</option>
+              <option value="QC">QC</option>
+            </select>
+          </div>
+          <div>
+            <label className="label-field">Standard Shelf Life (days)</label>
+            <input type="number" value={formData.standardShelfLife} onChange={(e) => setFormData({ ...formData, standardShelfLife: +e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Minimum Stock</label>
+            <input type="number" value={formData.minimumStock} onChange={(e) => setFormData({ ...formData, minimumStock: +e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Maximum Stock</label>
+            <input type="number" value={formData.maximumStock} onChange={(e) => setFormData({ ...formData, maximumStock: +e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Reorder Level</label>
+            <input type="number" value={formData.reorderLevel} onChange={(e) => setFormData({ ...formData, reorderLevel: +e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Manufacturer</label>
+            <input type="text" value={formData.manufacturer} onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Supplier</label>
+            <input type="text" value={formData.supplier} onChange={(e) => setFormData({ ...formData, supplier: e.target.value })} className="input-field" />
+          </div>
+          <div className="col-span-2">
+            <label className="label-field">Remarks</label>
+            <input type="text" value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} className="input-field" placeholder="Any additional notes" />
+          </div>
+          <div className="col-span-2 flex flex-wrap gap-6">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={formData.batchControlled} onChange={(e) => setFormData({ ...formData, batchControlled: e.target.checked })} className="rounded border-gray-300" />
+              Batch Controlled
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={formData.fefoEnabled} onChange={(e) => setFormData({ ...formData, fefoEnabled: e.target.checked })} className="rounded border-gray-300" />
+              FEFO Enabled
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={formData.msdsRequired} onChange={(e) => setFormData({ ...formData, msdsRequired: e.target.checked })} className="rounded border-gray-300" />
+              MSDS Required
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={formData.fifoRequired} onChange={(e) => setFormData({ ...formData, fifoRequired: e.target.checked })} className="rounded border-gray-300" />
+              FIFO Required
+            </label>
+          </div>
+          {formData.msdsRequired && (
+            <div className="col-span-2">
+              <label className="label-field">MSDS Link / Note</label>
+              <input type="text" value={formData.msdsLink} onChange={(e) => setFormData({ ...formData, msdsLink: e.target.value })} className="input-field" placeholder="URL or note about MSDS document" />
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+          <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
+          <button onClick={handleSave} className="btn-primary">{editItem ? 'Update' : 'Create'}</button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
