@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import { Plus, Edit2, Trash2, Printer, Search, Download, Upload, Archive, RotateCcw } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useWMSStore } from '../store';
 import type { MasterItem } from '../types';
 import { Modal } from '../components/ui/Modal';
@@ -151,12 +152,10 @@ export default function MasterItems() {
   const downloadTemplate = () => {
     const headers = ['Item Name', 'Category', 'Subcategory', 'Unit', 'Location', 'Tracker Group', 'Batch Controlled', 'FEFO', 'Min Stock', 'Max Stock', 'Reorder Level', 'Shelf Life (days)', 'Manufacturer', 'Supplier', 'MSDS Required', 'FIFO Required', 'Remarks'];
     const example = ['Safety Helmet', 'PPE', 'Head Protection', 'Piece', 'A-03-01', 'PPE', 'Yes', 'No', '15', '150', '30', '1825', 'HeadGuard', 'SafetyFirst Ltd', 'No', 'No', ''];
-    const csv = [headers.join(','), example.join(',')].join('\n');
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'items-import-template.csv'; a.click();
-    URL.revokeObjectURL(url);
+    const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Items');
+    XLSX.writeFile(wb, 'items-import-template.xlsx');
   };
 
   const parseCSV = (text: string): { data: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[]; errors: string[] } => {
@@ -203,12 +202,17 @@ export default function MasterItems() {
     setImportFileName(file.name);
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      const { data, errors } = parseCSV(text);
-      setImportData(data);
+      const data = ev.target?.result;
+      if (!data) return;
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const csvText = XLSX.utils.sheet_to_csv(sheet);
+      const { data: parsed, errors } = parseCSV(csvText);
+      setImportData(parsed);
       setImportErrors(errors);
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
     e.target.value = '';
   };
 
@@ -441,7 +445,7 @@ export default function MasterItems() {
             <button onClick={() => fileInputRef.current?.click()} className="btn-primary flex items-center gap-2 text-sm">
               <Upload className="w-4 h-4" /> Choose CSV File
             </button>
-            <input ref={fileInputRef} type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
+            <input ref={fileInputRef} type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
           </div>
           {importFileName && (
             <p className="text-sm text-gray-600">File: <span className="font-medium">{importFileName}</span></p>
