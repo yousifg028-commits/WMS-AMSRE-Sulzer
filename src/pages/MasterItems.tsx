@@ -182,43 +182,61 @@ export default function MasterItems() {
         setImportColumns(headers);
         const errors: string[] = [];
         const imported: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[] = [];
+
+        const findCol = (patterns: RegExp[]) => {
+          const idx = headers.findIndex(h => patterns.some(p => p.test(h)));
+          return idx >= 0 ? idx : -1;
+        };
+        const colName = findCol([/^item\s*name/i, /^name$/i, /^product/i, /^item$/i, /^description/i, /^material/i, /^itemName/i]);
+        const colCat = findCol([/^category$/i, /^cat$/i, /^type$/i, /^group$/i]);
+        const colCode = findCol([/^item\s*code/i, /^code$/i, /^sku$/i, /^itemcode/i]);
+        const colSub = findCol([/^subcategory/i, /^sub/i, /^subcat/i]);
+        const colUnit = findCol([/^unit/i, /^uom$/i]);
+        const colLoc = findCol([/^location$/i, /^loc$/i, /^warehouse$/i, /^rack$/i]);
+        const colTracker = findCol([/^tracker/i]);
+        const colBatch = findCol([/^batch/i]);
+        const colFefo = findCol([/^fefo/i]);
+        const colMin = findCol([/^min\s*(stock|qty|quantity)?$/i]);
+        const colMax = findCol([/^max\s*(stock|qty|quantity)?$/i]);
+        const colReorder = findCol([/^reorder/i]);
+        const colShelf = findCol([/^shelf/i, /^life$/i, /^shelflife/i]);
+        const colMfr = findCol([/^manufacturer/i, /^mfr$/i, /^brand/i]);
+        const colSup = findCol([/^supplier$/i, /^vendor$/i]);
+        const colMsds = findCol([/^msds/i]);
+        const colFifo = findCol([/^fifo/i]);
+        const colRem = findCol([/^remark/i, /^note$/i, /^comment/i]);
+
+        if (colName < 0) { errors.push('Could not find "Item Name" column. Your columns: ' + headers.join(', ')); setImportData([]); setImportErrors(errors); return; }
+        if (colCat < 0) { errors.push('Could not find "Category" column. Your columns: ' + headers.join(', ')); setImportData([]); setImportErrors(errors); return; }
+
+        const getVal = (row: Record<string, any>, colIdx: number) => colIdx >= 0 ? String(row[headers[colIdx]] || '').trim() : '';
+        const getNum = (row: Record<string, any>, colIdx: number) => parseInt(getVal(row, colIdx)) || 0;
+        const getBool = (row: Record<string, any>, colIdx: number) => { const s = getVal(row, colIdx).toLowerCase(); return s === 'yes' || s === 'true' || s === '1'; };
+
         rows.forEach((row, i) => {
-          const nameIdx = headers.findIndex(h => /^item\s*name|^name|^product/i.test(h));
-          const catIdx = headers.findIndex(h => /^category$/i.test(h));
-          const name = nameIdx >= 0 ? String(row[headers[nameIdx]] || '').trim() : '';
-          const cat = catIdx >= 0 ? String(row[headers[catIdx]] || '').trim() : '';
+          const name = getVal(row, colName);
           if (!name) { errors.push(`Row ${i + 2}: Missing item name`); return; }
-          if (!cat || !categories.includes(cat)) { errors.push(`Row ${i + 2}: Invalid category "${cat || '(empty)'}" — must be: ${categories.join(', ')}`); return; }
-          const findVal = (patterns: RegExp[]) => {
-            const idx = headers.findIndex(h => patterns.some(p => p.test(h)));
-            return idx >= 0 ? String(row[headers[idx]] || '').trim() : '';
-          };
-          const findNum = (patterns: RegExp[]) => {
-            const val = findVal(patterns);
-            return parseInt(val) || 0;
-          };
-          const findBool = (patterns: RegExp[]) => {
-            const val = findVal(patterns).toLowerCase();
-            return val === 'yes' || val === 'true' || val === '1';
-          };
+          const cat = getVal(row, colCat);
+          if (!cat) { errors.push(`Row ${i + 2}: Missing category for "${name}"`); return; }
+          if (!categories.includes(cat)) { errors.push(`Row ${i + 2}: Invalid category "${cat}" for "${name}" — must be: ${categories.join(', ')}`); return; }
           imported.push({
-            itemCode: findVal([/^item\s*code$/i, /^code$/i, /^sku$/i]),
+            itemCode: getVal(row, colCode),
             itemName: name, category: cat,
-            subcategory: findVal([/^subcategory$/i, /^sub$/i, /^type$/i]),
-            unitOfMeasure: findVal([/^unit/i, /^uom$/i]) || 'Piece',
-            location: findVal([/^location$/i, /^loc$/i, /^warehouse$/i]),
-            trackerGroup: (findVal([/^tracker/i, /^group$/i])) as '' | 'PPE' | 'Stationery' | 'Job Material' | 'QC',
-            batchControlled: findBool([/^batch/i]),
-            fefoEnabled: findBool([/^fefo/i]),
-            minimumStock: findNum([/^min/i]),
-            maximumStock: findNum([/^max/i]),
-            reorderLevel: findNum([/^reorder/i]),
-            standardShelfLife: findNum([/^shelf/i, /^life$/i]),
-            manufacturer: findVal([/^manufacturer/i, /^mfr$/i]),
-            supplier: findVal([/^supplier$/i, /^vendor$/i]),
-            msdsRequired: findBool([/^msds/i]),
-            fifoRequired: findBool([/^fifo/i]),
-            remarks: findVal([/^remark/i, /^note$/i]),
+            subcategory: getVal(row, colSub),
+            unitOfMeasure: getVal(row, colUnit) || 'Piece',
+            location: getVal(row, colLoc),
+            trackerGroup: (getVal(row, colTracker)) as '' | 'PPE' | 'Stationery' | 'Job Material' | 'QC',
+            batchControlled: getBool(row, colBatch),
+            fefoEnabled: getBool(row, colFefo),
+            minimumStock: getNum(row, colMin),
+            maximumStock: getNum(row, colMax),
+            reorderLevel: getNum(row, colReorder),
+            standardShelfLife: getNum(row, colShelf),
+            manufacturer: getVal(row, colMfr),
+            supplier: getVal(row, colSup),
+            msdsRequired: getBool(row, colMsds),
+            fifoRequired: getBool(row, colFifo),
+            remarks: getVal(row, colRem),
             msdsLink: '', status: 'Active',
           });
         });
@@ -472,13 +490,17 @@ export default function MasterItems() {
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-xs font-medium text-gray-700 mb-2">Detected Columns ({importColumns.length}):</p>
               <div className="flex flex-wrap gap-1">
-                {importColumns.map((col, i) => (
-                  <span key={i} className={`text-xs px-2 py-0.5 rounded ${(col.toLowerCase().includes('name') || col.toLowerCase() === 'category') ? 'bg-green-100 text-green-700 font-medium' : 'bg-gray-200 text-gray-600'}`}>
-                    {col}
-                  </span>
-                ))}
+                {importColumns.map((col, i) => {
+                  const isName = /^item\s*name|^name$|^product|^item$|^description|^material|^itemName$/i.test(col);
+                  const isCat = /^category$|^cat$|^type$|^group$/i.test(col);
+                  return (
+                    <span key={i} className={`text-xs px-2 py-0.5 rounded ${isName || isCat ? 'bg-green-100 text-green-700 font-medium' : 'bg-gray-200 text-gray-600'}`}>
+                      {col}{isName ? ' (Name)' : isCat ? ' (Category)' : ''}
+                    </span>
+                  );
+                })}
               </div>
-              <p className="text-xs text-gray-500 mt-2">Green = required columns. Make sure your file has columns named exactly "Item Name" and "Category".</p>
+              <p className="text-xs text-gray-500 mt-2">Green = matched as required columns. Make sure your Excel has columns for Item Name and Category.</p>
             </div>
           )}
           {importErrors.length > 0 && (
