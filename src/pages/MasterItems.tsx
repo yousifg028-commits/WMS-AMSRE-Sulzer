@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Plus, Edit2, Trash2, Printer, Search, Download, Archive, RotateCcw } from 'lucide-react';
+import { useState, useMemo, useRef } from 'react';
+import { Plus, Edit2, Trash2, Printer, Search, Download, Upload, Archive, RotateCcw } from 'lucide-react';
 import { useWMSStore } from '../store';
 import type { MasterItem } from '../types';
 import { Modal } from '../components/ui/Modal';
@@ -36,6 +36,11 @@ export default function MasterItems() {
   const [editItem, setEditItem] = useState<MasterItem | null>(null);
   const [formData, setFormData] = useState(emptyItem);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importData, setImportData] = useState<Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[]>([]);
+  const [importFileName, setImportFileName] = useState('');
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const duplicateName = formData.itemName && masterItems.find(i => i.itemName.toLowerCase() === formData.itemName.toLowerCase() && i.id !== editItem?.id);
 
@@ -143,6 +148,78 @@ export default function MasterItems() {
     setShowExportMenu(false);
   };
 
+  const downloadTemplate = () => {
+    const headers = ['Item Name', 'Category', 'Subcategory', 'Unit', 'Location', 'Tracker Group', 'Batch Controlled', 'FEFO', 'Min Stock', 'Max Stock', 'Reorder Level', 'Shelf Life (days)', 'Manufacturer', 'Supplier', 'MSDS Required', 'FIFO Required', 'Remarks'];
+    const example = ['Safety Helmet', 'PPE', 'Head Protection', 'Piece', 'A-03-01', 'PPE', 'Yes', 'No', '15', '150', '30', '1825', 'HeadGuard', 'SafetyFirst Ltd', 'No', 'No', ''];
+    const csv = [headers.join(','), example.join(',')].join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'items-import-template.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = (text: string): { data: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[]; errors: string[] } => {
+    const lines = text.trim().split('\n');
+    if (lines.length < 2) return { data: [], errors: ['File is empty or has no data rows'] };
+    const errors: string[] = [];
+    const data: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+      if (cols.length < 2 || !cols[0]) { errors.push(`Row ${i + 1}: Missing item name`); continue; }
+      const category = cols[1] || '';
+      if (!categories.includes(category)) { errors.push(`Row ${i + 1}: Invalid category "${category}" (use: ${categories.join(', ')})`); continue; }
+      data.push({
+        itemCode: '',
+        itemName: cols[0],
+        category,
+        subcategory: cols[2] || '',
+        unitOfMeasure: cols[3] || 'Piece',
+        location: cols[4] || '',
+        trackerGroup: (cols[5] || '') as '' | 'PPE' | 'Stationery' | 'Job Material' | 'QC',
+        batchControlled: (cols[6] || 'Yes').toLowerCase() === 'yes',
+        fefoEnabled: (cols[7] || 'No').toLowerCase() === 'yes',
+        minimumStock: parseInt(cols[8]) || 0,
+        maximumStock: parseInt(cols[9]) || 0,
+        reorderLevel: parseInt(cols[10]) || 0,
+        standardShelfLife: parseInt(cols[11]) || 0,
+        manufacturer: cols[12] || '',
+        supplier: cols[13] || '',
+        msdsRequired: (cols[14] || 'No').toLowerCase() === 'yes',
+        fifoRequired: (cols[15] || 'No').toLowerCase() === 'yes',
+        remarks: cols[16] || '',
+        msdsLink: '',
+        status: 'Active',
+      });
+    }
+    return { data, errors };
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const { data, errors } = parseCSV(text);
+      setImportData(data);
+      setImportErrors(errors);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleImport = () => {
+    importData.forEach(item => addItem(item));
+    setShowImportModal(false);
+    setImportData([]);
+    setImportFileName('');
+    setImportErrors([]);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -162,6 +239,9 @@ export default function MasterItems() {
               </div>
             )}
           </div>
+          <button onClick={() => setShowImportModal(true)} className="btn-secondary flex items-center gap-2">
+            <Upload className="w-4 h-4" /> Import
+          </button>
           <button onClick={openCreate} className="btn-primary flex items-center gap-2">
             <Plus className="w-4 h-4" /> Add Item
           </button>
@@ -344,6 +424,62 @@ export default function MasterItems() {
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
           <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
           <button onClick={handleSave} className="btn-primary">{editItem ? 'Update' : 'Create'}</button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showImportModal} onClose={() => { setShowImportModal(false); setImportData([]); setImportFileName(''); setImportErrors([]); }} title="Bulk Import Items" maxWidth="max-w-3xl">
+        <div className="space-y-4">
+          <div className="bg-blue-50 rounded-lg p-4">
+            <p className="text-sm text-blue-800 font-medium">CSV Format Requirements</p>
+            <p className="text-xs text-blue-600 mt-1">Columns: Item Name, Category, Subcategory, Unit, Location, Tracker Group, Batch Controlled (Yes/No), FEFO (Yes/No), Min Stock, Max Stock, Reorder Level, Shelf Life (days), Manufacturer, Supplier, MSDS Required (Yes/No), FIFO Required (Yes/No), Remarks</p>
+            <p className="text-xs text-blue-600 mt-1">Valid Categories: {categories.join(', ')}</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={downloadTemplate} className="btn-secondary flex items-center gap-2 text-sm">
+              <Download className="w-4 h-4" /> Download Template
+            </button>
+            <button onClick={() => fileInputRef.current?.click()} className="btn-primary flex items-center gap-2 text-sm">
+              <Upload className="w-4 h-4" /> Choose CSV File
+            </button>
+            <input ref={fileInputRef} type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
+          </div>
+          {importFileName && (
+            <p className="text-sm text-gray-600">File: <span className="font-medium">{importFileName}</span></p>
+          )}
+          {importErrors.length > 0 && (
+            <div className="bg-red-50 rounded-lg p-3 max-h-32 overflow-y-auto">
+              <p className="text-sm text-red-700 font-medium mb-1">Errors ({importErrors.length}):</p>
+              {importErrors.map((err, i) => <p key={i} className="text-xs text-red-600">{err}</p>)}
+            </div>
+          )}
+          {importData.length > 0 && (
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Preview ({importData.length} items to import):</p>
+              <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr><th className="px-3 py-2 text-left">Name</th><th className="px-3 py-2 text-left">Category</th><th className="px-3 py-2 text-left">Unit</th><th className="px-3 py-2 text-left">Tracker</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {importData.map((item, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="px-3 py-2">{item.itemName}</td>
+                        <td className="px-3 py-2">{item.category}</td>
+                        <td className="px-3 py-2">{item.unitOfMeasure}</td>
+                        <td className="px-3 py-2">{item.trackerGroup || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end gap-3 mt-4 pt-4 border-t">
+            <button onClick={() => { setShowImportModal(false); setImportData([]); setImportFileName(''); setImportErrors([]); }} className="btn-secondary">Cancel</button>
+            <button onClick={handleImport} disabled={importData.length === 0} className="btn-primary disabled:opacity-50">
+              Import {importData.length} Items
+            </button>
+          </div>
         </div>
       </Modal>
     </div>
