@@ -40,7 +40,11 @@ interface WMSState {
   updateEmployee: (id: string, updates: Partial<Employee>) => void;
 
   createStockIn: (record: Omit<StockInRecord, 'id' | 'grnNumber' | 'batchId' | 'createdAt'>) => string;
+  deleteStockIn: (id: string) => void;
+  updateStockIn: (id: string, updates: Partial<StockInRecord>) => void;
   createStockOut: (record: Omit<StockOutRecord, 'id' | 'issueNumber' | 'createdAt' | 'batchId'>) => string | null;
+  deleteStockOut: (id: string) => void;
+  updateStockOut: (id: string, updates: Partial<StockOutRecord>) => void;
   createStockAdjustment: (adj: Omit<StockAdjustment, 'id' | 'adjustmentNumber' | 'createdAt'>) => void;
   applyServerStockOut: (record: StockOutRecord) => void;
 
@@ -294,6 +298,34 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     return batchId;
   },
 
+  deleteStockIn: (id) => set((state) => {
+    const record = state.stockInRecords.find(r => r.id === id);
+    if (!record) return state;
+    const audit = logAudit(state, 'Delete Stock In', 'Stock In', record.grnNumber, record, null);
+    const batch = state.batchLedger.find(b => b.batchId === record.batchId);
+    const qty = batch ? batch.balance : record.quantity;
+    return {
+      stockInRecords: state.stockInRecords.filter(r => r.id !== id),
+      batchLedger: state.batchLedger.filter(b => b.batchId !== record.batchId),
+      inventoryBalances: state.inventoryBalances.map(b =>
+        b.itemId === record.itemId
+          ? { ...b, totalQuantity: b.totalQuantity - qty, availableQuantity: b.availableQuantity - qty, lastUpdated: new Date().toISOString() }
+          : b
+      ),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  updateStockIn: (id, updates) => set((state) => {
+    const old = state.stockInRecords.find(r => r.id === id);
+    if (!old) return state;
+    const audit = logAudit(state, 'Update Stock In', 'Stock In', old.grnNumber, old, { ...old, ...updates });
+    return {
+      stockInRecords: state.stockInRecords.map(r => r.id === id ? { ...r, ...updates } : r),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
   createStockOut: (record) => {
     const state = get();
     const item = state.masterItems.find(i => i.id === record.itemId);
@@ -369,6 +401,36 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     });
     return issueNumber;
   },
+
+  deleteStockOut: (id) => set((state) => {
+    const record = state.stockOutRecords.find(r => r.id === id);
+    if (!record) return state;
+    const audit = logAudit(state, 'Delete Stock Out', 'Stock Out', record.issueNumber, record, null);
+    return {
+      stockOutRecords: state.stockOutRecords.filter(r => r.id !== id),
+      batchLedger: state.batchLedger.map(b =>
+        b.batchId === record.batchId
+          ? { ...b, quantityOut: Math.max(0, b.quantityOut - record.quantity), balance: b.balance + record.quantity, updatedAt: new Date().toISOString() }
+          : b
+      ),
+      inventoryBalances: state.inventoryBalances.map(b =>
+        b.itemId === record.itemId
+          ? { ...b, totalQuantity: b.totalQuantity + record.quantity, availableQuantity: b.availableQuantity + record.quantity, lastUpdated: new Date().toISOString() }
+          : b
+      ),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  updateStockOut: (id, updates) => set((state) => {
+    const old = state.stockOutRecords.find(r => r.id === id);
+    if (!old) return state;
+    const audit = logAudit(state, 'Update Stock Out', 'Stock Out', old.issueNumber, old, { ...old, ...updates });
+    return {
+      stockOutRecords: state.stockOutRecords.map(r => r.id === id ? { ...r, ...updates } : r),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
 
   applyServerStockOut: (record) => {
     const state = get();

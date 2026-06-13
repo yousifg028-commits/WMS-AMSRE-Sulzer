@@ -1,16 +1,18 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Eye, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Eye, AlertTriangle, Pencil, Trash2 } from 'lucide-react';
 import { useWMSStore } from '../store';
 import { Modal } from '../components/ui/Modal';
 import { format } from 'date-fns';
 import { allocateFEFO } from '../utils/fefo';
 import { allocateFIFO } from '../utils/fifo';
+import type { StockOutRecord } from '../types';
 
 export default function StockOut() {
-  const { masterItems, employees, stockOutRecords, batchLedger, inventoryBalances, createStockOut, jobs } = useWMSStore();
+  const { masterItems, employees, stockOutRecords, batchLedger, inventoryBalances, createStockOut, deleteStockOut, updateStockOut, jobs } = useWMSStore();
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showDetail, setShowDetail] = useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = useState<StockOutRecord | null>(null);
   const [selectedBatchInfo, setSelectedBatchInfo] = useState<string>('');
   const [formData, setFormData] = useState({
     issueDate: format(new Date(), 'yyyy-MM-dd'),
@@ -79,6 +81,22 @@ export default function StockOut() {
     }
   };
 
+  const handleDelete = (record: StockOutRecord) => {
+    if (window.confirm(`Delete issue "${record.issueNumber}"? This will reverse the batch deduction and restore inventory balance.`)) {
+      deleteStockOut(record.id);
+    }
+  };
+
+  const handleUpdate = () => {
+    if (!editingRecord) return;
+    updateStockOut(editingRecord.id, {
+      issueDate: formData.issueDate,
+      jobNumber: formData.jobNumber,
+      remarks: formData.remarks,
+    });
+    setEditingRecord(null);
+  };
+
   const detailRecord = stockOutRecords.find(r => r.id === showDetail);
   const availableStock = selectedItem
     ? inventoryBalances.find(b => b.itemId === selectedItem.id)?.availableQuantity || 0
@@ -144,9 +162,17 @@ export default function StockOut() {
                   <td className="table-cell font-mono text-xs">{record.batchId}</td>
                   <td className="table-cell">{record.jobNumber}</td>
                   <td className="table-cell text-center">
-                    <button onClick={() => setShowDetail(record.id)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600">
-                      <Eye className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => setShowDetail(record.id)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600" title="View">
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => { setEditingRecord(record); setFormData({ issueDate: record.issueDate, employeeId: '', itemId: '', quantity: 0, jobNumber: record.jobNumber || '', remarks: record.remarks || '' }); }} className="p-1.5 hover:bg-amber-50 rounded-lg text-amber-600" title="Edit">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDelete(record)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600" title="Delete">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -230,6 +256,44 @@ export default function StockOut() {
           >
             Issue Stock
           </button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={!!editingRecord} onClose={() => setEditingRecord(null)} title={`Edit Issue - ${editingRecord?.issueNumber || ''}`} maxWidth="max-w-3xl">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label-field">Issue Date</label>
+            <input type="date" value={formData.issueDate} onChange={(e) => setFormData({ ...formData, issueDate: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Employee</label>
+            <input type="text" disabled value={editingRecord?.employeeName || ''} className="input-field bg-gray-50" />
+          </div>
+          <div>
+            <label className="label-field">Item</label>
+            <input type="text" disabled value={editingRecord?.itemName || ''} className="input-field bg-gray-50" />
+          </div>
+          <div>
+            <label className="label-field">Quantity</label>
+            <input type="text" disabled value={editingRecord?.quantity || ''} className="input-field bg-gray-50" />
+          </div>
+          <div>
+            <label className="label-field">Job Number</label>
+            <select value={formData.jobNumber} onChange={(e) => setFormData({ ...formData, jobNumber: e.target.value })} className="select-field">
+              <option value="">Select job (optional)</option>
+              {jobs.filter(j => j.status === 'Active').map(job => (
+                <option key={job.id} value={job.jobNumber}>{job.jobNumber} - {job.jobName}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label-field">Remarks</label>
+            <input type="text" value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} className="input-field" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+          <button onClick={() => setEditingRecord(null)} className="btn-secondary">Cancel</button>
+          <button onClick={handleUpdate} className="btn-primary">Update Issue</button>
         </div>
       </Modal>
 

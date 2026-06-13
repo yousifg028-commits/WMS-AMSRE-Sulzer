@@ -1,14 +1,16 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Eye } from 'lucide-react';
+import { Plus, Search, Eye, Pencil, Trash2 } from 'lucide-react';
 import { useWMSStore } from '../store';
 import { Modal } from '../components/ui/Modal';
 import { format } from 'date-fns';
+import type { StockInRecord } from '../types';
 
 export default function StockIn() {
-  const { masterItems, stockInRecords, createStockIn } = useWMSStore();
+  const { masterItems, stockInRecords, createStockIn, deleteStockIn, updateStockIn } = useWMSStore();
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showDetail, setShowDetail] = useState<string | null>(null);
+  const [editingRecord, setEditingRecord] = useState<StockInRecord | null>(null);
   const [formData, setFormData] = useState({
     receiptDate: format(new Date(), 'yyyy-MM-dd'),
     itemId: '',
@@ -57,6 +59,47 @@ export default function StockIn() {
       itemId: '', quantity: 0, dom: '', bbd: '', expiryDate: '',
       supplier: '', warehouseLocation: '', remarks: '',
     });
+  };
+
+  const handleDelete = (record: StockInRecord) => {
+    if (window.confirm(`Delete receipt "${record.grnNumber}"? This will reverse the batch and inventory balance.`)) {
+      deleteStockIn(record.id);
+    }
+  };
+
+  const handleEdit = (record: StockInRecord) => {
+    setEditingRecord(record);
+  };
+
+  const handleUpdate = () => {
+    if (!editingRecord) return;
+    updateStockIn(editingRecord.id, {
+      receiptDate: formData.receiptDate,
+      supplier: formData.supplier,
+      warehouseLocation: formData.warehouseLocation,
+      remarks: formData.remarks,
+      dom: formData.dom,
+      bbd: formData.bbd,
+      expiryDate: formData.expiryDate,
+      quantity: formData.quantity,
+    });
+    setEditingRecord(null);
+    setShowModal(false);
+  };
+
+  const openEditModal = (record: StockInRecord) => {
+    setFormData({
+      receiptDate: record.receiptDate,
+      itemId: record.itemId,
+      quantity: record.quantity,
+      dom: record.dom || '',
+      bbd: record.bbd || '',
+      expiryDate: record.expiryDate || '',
+      supplier: record.supplier,
+      warehouseLocation: record.warehouseLocation,
+      remarks: record.remarks || '',
+    });
+    handleEdit(record);
   };
 
   const detailRecord = stockInRecords.find(r => r.id === showDetail);
@@ -121,9 +164,17 @@ export default function StockIn() {
                   <td className="table-cell font-mono text-xs">{record.batchId}</td>
                   <td className="table-cell">{record.supplier}</td>
                   <td className="table-cell text-center">
-                    <button onClick={() => setShowDetail(record.id)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600">
-                      <Eye className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => setShowDetail(record.id)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600" title="View">
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => openEditModal(record)} className="p-1.5 hover:bg-amber-50 rounded-lg text-amber-600" title="Edit">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDelete(record)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600" title="Delete">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -180,6 +231,51 @@ export default function StockIn() {
         <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
           <button onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
           <button onClick={handleSave} className="btn-primary">Receive Stock</button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={!!editingRecord} onClose={() => { setEditingRecord(null); }} title={`Edit Receipt - ${editingRecord?.grnNumber || ''}`} maxWidth="max-w-3xl">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label-field">Receipt Date</label>
+            <input type="date" value={formData.receiptDate} onChange={(e) => setFormData({ ...formData, receiptDate: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Item</label>
+            <input type="text" disabled value={editingRecord?.itemName || ''} className="input-field bg-gray-50" />
+          </div>
+          <div>
+            <label className="label-field">Quantity</label>
+            <input type="number" min="1" value={formData.quantity || ''} onChange={(e) => setFormData({ ...formData, quantity: +e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Supplier</label>
+            <input type="text" value={formData.supplier} onChange={(e) => setFormData({ ...formData, supplier: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">DOM</label>
+            <input type="date" value={formData.dom} onChange={(e) => setFormData({ ...formData, dom: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">BBD</label>
+            <input type="date" value={formData.bbd} onChange={(e) => setFormData({ ...formData, bbd: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Expiry Date</label>
+            <input type="date" value={formData.expiryDate} onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Location</label>
+            <input type="text" value={formData.warehouseLocation} onChange={(e) => setFormData({ ...formData, warehouseLocation: e.target.value })} className="input-field" />
+          </div>
+          <div className="col-span-2">
+            <label className="label-field">Remarks</label>
+            <textarea value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} className="input-field" rows={2} />
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+          <button onClick={() => { setEditingRecord(null); }} className="btn-secondary">Cancel</button>
+          <button onClick={handleUpdate} className="btn-primary">Update Receipt</button>
         </div>
       </Modal>
 
