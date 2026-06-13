@@ -41,6 +41,7 @@ export default function MasterItems() {
   const [importData, setImportData] = useState<Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[]>([]);
   const [importFileName, setImportFileName] = useState('');
   const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [importColumns, setImportColumns] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const duplicateName = formData.itemName && masterItems.find(i => i.itemName.toLowerCase() === formData.itemName.toLowerCase() && i.id !== editItem?.id);
@@ -173,54 +174,51 @@ export default function MasterItems() {
         const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
         if (rows.length === 0) {
           setImportData([]);
+          setImportColumns([]);
           setImportErrors(['File is empty or has no data rows']);
           return;
         }
         const headers = Object.keys(rows[0]);
-        const findHeader = (searches: string[]) => headers.find(h => searches.some(s => h.toLowerCase().includes(s))) || '';
-        const hName = findHeader(['item name', 'name', 'itemName', 'product']);
-        const hCat = findHeader(['category', 'cat']);
-        const hSub = findHeader(['subcategory', 'sub', 'type']);
-        const hUnit = findHeader(['unit', 'uom']);
-        const hLoc = findHeader(['location', 'loc']);
-        const hTracker = findHeader(['tracker', 'group']);
-        const hBatch = findHeader(['batch']);
-        const hFefo = findHeader(['fefo']);
-        const hMin = findHeader(['min']);
-        const hMax = findHeader(['max']);
-        const hReorder = findHeader(['reorder']);
-        const hShelf = findHeader(['shelf', 'life']);
-        const hMfr = findHeader(['manufacturer', 'mfr']);
-        const hSup = findHeader(['supplier']);
-        const hMsds = findHeader(['msds']);
-        const hFifo = findHeader(['fifo']);
-        const hRem = findHeader(['remark', 'note']);
-        const parseBool = (v: any) => { const s = String(v).toLowerCase(); return s === 'yes' || s === 'true' || s === '1'; };
-        const parseNum = (v: any) => parseInt(String(v)) || 0;
+        setImportColumns(headers);
         const errors: string[] = [];
         const imported: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[] = [];
         rows.forEach((row, i) => {
-          const name = String(row[hName] || '').trim();
+          const nameIdx = headers.findIndex(h => /^item\s*name|^name|^product/i.test(h));
+          const catIdx = headers.findIndex(h => /^category$/i.test(h));
+          const name = nameIdx >= 0 ? String(row[headers[nameIdx]] || '').trim() : '';
+          const cat = catIdx >= 0 ? String(row[headers[catIdx]] || '').trim() : '';
           if (!name) { errors.push(`Row ${i + 2}: Missing item name`); return; }
-          const cat = String(row[hCat] || '').trim();
-          if (!categories.includes(cat)) { errors.push(`Row ${i + 2}: Invalid category "${cat}"`); return; }
+          if (!cat || !categories.includes(cat)) { errors.push(`Row ${i + 2}: Invalid category "${cat || '(empty)'}" — must be: ${categories.join(', ')}`); return; }
+          const findVal = (patterns: RegExp[]) => {
+            const idx = headers.findIndex(h => patterns.some(p => p.test(h)));
+            return idx >= 0 ? String(row[headers[idx]] || '').trim() : '';
+          };
+          const findNum = (patterns: RegExp[]) => {
+            const val = findVal(patterns);
+            return parseInt(val) || 0;
+          };
+          const findBool = (patterns: RegExp[]) => {
+            const val = findVal(patterns).toLowerCase();
+            return val === 'yes' || val === 'true' || val === '1';
+          };
           imported.push({
-            itemCode: '', itemName: name, category: cat,
-            subcategory: String(row[hSub] || '').trim(),
-            unitOfMeasure: String(row[hUnit] || 'Piece').trim(),
-            location: String(row[hLoc] || '').trim(),
-            trackerGroup: (String(row[hTracker] || '').trim()) as '' | 'PPE' | 'Stationery' | 'Job Material' | 'QC',
-            batchControlled: parseBool(row[hBatch]),
-            fefoEnabled: parseBool(row[hFefo]),
-            minimumStock: parseNum(row[hMin]),
-            maximumStock: parseNum(row[hMax]),
-            reorderLevel: parseNum(row[hReorder]),
-            standardShelfLife: parseNum(row[hShelf]),
-            manufacturer: String(row[hMfr] || '').trim(),
-            supplier: String(row[hSup] || '').trim(),
-            msdsRequired: parseBool(row[hMsds]),
-            fifoRequired: parseBool(row[hFifo]),
-            remarks: String(row[hRem] || '').trim(),
+            itemCode: findVal([/^item\s*code$/i, /^code$/i, /^sku$/i]),
+            itemName: name, category: cat,
+            subcategory: findVal([/^subcategory$/i, /^sub$/i, /^type$/i]),
+            unitOfMeasure: findVal([/^unit/i, /^uom$/i]) || 'Piece',
+            location: findVal([/^location$/i, /^loc$/i, /^warehouse$/i]),
+            trackerGroup: (findVal([/^tracker/i, /^group$/i])) as '' | 'PPE' | 'Stationery' | 'Job Material' | 'QC',
+            batchControlled: findBool([/^batch/i]),
+            fefoEnabled: findBool([/^fefo/i]),
+            minimumStock: findNum([/^min/i]),
+            maximumStock: findNum([/^max/i]),
+            reorderLevel: findNum([/^reorder/i]),
+            standardShelfLife: findNum([/^shelf/i, /^life$/i]),
+            manufacturer: findVal([/^manufacturer/i, /^mfr$/i]),
+            supplier: findVal([/^supplier$/i, /^vendor$/i]),
+            msdsRequired: findBool([/^msds/i]),
+            fifoRequired: findBool([/^fifo/i]),
+            remarks: findVal([/^remark/i, /^note$/i]),
             msdsLink: '', status: 'Active',
           });
         });
@@ -228,6 +226,7 @@ export default function MasterItems() {
         setImportErrors(errors);
       } catch (err: any) {
         setImportData([]);
+        setImportColumns([]);
         setImportErrors(['Failed to parse file: ' + (err.message || 'Unknown error')]);
       }
     };
@@ -454,8 +453,8 @@ export default function MasterItems() {
         <div className="space-y-4">
           <div className="bg-blue-50 rounded-lg p-4">
             <p className="text-sm text-blue-800 font-medium">Supported Files: Excel (.xlsx, .xls) or CSV</p>
-            <p className="text-xs text-blue-600 mt-1">Required column: "Item Name" and "Category". Other columns are optional. The system auto-detects column names.</p>
-            <p className="text-xs text-blue-600 mt-1">Valid Categories: {categories.join(', ')}</p>
+            <p className="text-xs text-blue-600 mt-1">Required columns: <strong>Item Name</strong> and <strong>Category</strong> (must match exactly: {categories.join(', ')}).</p>
+            <p className="text-xs text-blue-600">The system auto-detects column names. Other columns are optional.</p>
           </div>
           <div className="flex gap-3">
             <button onClick={downloadTemplate} className="btn-secondary flex items-center gap-2 text-sm">
@@ -468,6 +467,19 @@ export default function MasterItems() {
           </div>
           {importFileName && (
             <p className="text-sm text-gray-600">File: <span className="font-medium">{importFileName}</span></p>
+          )}
+          {importColumns.length > 0 && (
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs font-medium text-gray-700 mb-2">Detected Columns ({importColumns.length}):</p>
+              <div className="flex flex-wrap gap-1">
+                {importColumns.map((col, i) => (
+                  <span key={i} className={`text-xs px-2 py-0.5 rounded ${(col.toLowerCase().includes('name') || col.toLowerCase() === 'category') ? 'bg-green-100 text-green-700 font-medium' : 'bg-gray-200 text-gray-600'}`}>
+                    {col}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Green = required columns. Make sure your file has columns named exactly "Item Name" and "Category".</p>
+            </div>
           )}
           {importErrors.length > 0 && (
             <div className="bg-red-50 rounded-lg p-3 max-h-32 overflow-y-auto">
