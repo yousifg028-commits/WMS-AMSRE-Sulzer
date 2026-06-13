@@ -158,44 +158,6 @@ export default function MasterItems() {
     XLSX.writeFile(wb, 'items-import-template.xlsx');
   };
 
-  const parseCSV = (text: string): { data: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[]; errors: string[] } => {
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return { data: [], errors: ['File is empty or has no data rows'] };
-    const errors: string[] = [];
-    const data: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[] = [];
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-      if (cols.length < 2 || !cols[0]) { errors.push(`Row ${i + 1}: Missing item name`); continue; }
-      const category = cols[1] || '';
-      if (!categories.includes(category)) { errors.push(`Row ${i + 1}: Invalid category "${category}" (use: ${categories.join(', ')})`); continue; }
-      data.push({
-        itemCode: '',
-        itemName: cols[0],
-        category,
-        subcategory: cols[2] || '',
-        unitOfMeasure: cols[3] || 'Piece',
-        location: cols[4] || '',
-        trackerGroup: (cols[5] || '') as '' | 'PPE' | 'Stationery' | 'Job Material' | 'QC',
-        batchControlled: (cols[6] || 'Yes').toLowerCase() === 'yes',
-        fefoEnabled: (cols[7] || 'No').toLowerCase() === 'yes',
-        minimumStock: parseInt(cols[8]) || 0,
-        maximumStock: parseInt(cols[9]) || 0,
-        reorderLevel: parseInt(cols[10]) || 0,
-        standardShelfLife: parseInt(cols[11]) || 0,
-        manufacturer: cols[12] || '',
-        supplier: cols[13] || '',
-        msdsRequired: (cols[14] || 'No').toLowerCase() === 'yes',
-        fifoRequired: (cols[15] || 'No').toLowerCase() === 'yes',
-        remarks: cols[16] || '',
-        msdsLink: '',
-        status: 'Active',
-      });
-    }
-    return { data, errors };
-  };
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -204,13 +166,70 @@ export default function MasterItems() {
     reader.onload = (ev) => {
       const data = ev.target?.result;
       if (!data) return;
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const csvText = XLSX.utils.sheet_to_csv(sheet);
-      const { data: parsed, errors } = parseCSV(csvText);
-      setImportData(parsed);
-      setImportErrors(errors);
+      try {
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
+        if (rows.length === 0) {
+          setImportData([]);
+          setImportErrors(['File is empty or has no data rows']);
+          return;
+        }
+        const headers = Object.keys(rows[0]);
+        const findHeader = (searches: string[]) => headers.find(h => searches.some(s => h.toLowerCase().includes(s))) || '';
+        const hName = findHeader(['item name', 'name', 'itemName', 'product']);
+        const hCat = findHeader(['category', 'cat']);
+        const hSub = findHeader(['subcategory', 'sub', 'type']);
+        const hUnit = findHeader(['unit', 'uom']);
+        const hLoc = findHeader(['location', 'loc']);
+        const hTracker = findHeader(['tracker', 'group']);
+        const hBatch = findHeader(['batch']);
+        const hFefo = findHeader(['fefo']);
+        const hMin = findHeader(['min']);
+        const hMax = findHeader(['max']);
+        const hReorder = findHeader(['reorder']);
+        const hShelf = findHeader(['shelf', 'life']);
+        const hMfr = findHeader(['manufacturer', 'mfr']);
+        const hSup = findHeader(['supplier']);
+        const hMsds = findHeader(['msds']);
+        const hFifo = findHeader(['fifo']);
+        const hRem = findHeader(['remark', 'note']);
+        const parseBool = (v: any) => { const s = String(v).toLowerCase(); return s === 'yes' || s === 'true' || s === '1'; };
+        const parseNum = (v: any) => parseInt(String(v)) || 0;
+        const errors: string[] = [];
+        const imported: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[] = [];
+        rows.forEach((row, i) => {
+          const name = String(row[hName] || '').trim();
+          if (!name) { errors.push(`Row ${i + 2}: Missing item name`); return; }
+          const cat = String(row[hCat] || '').trim();
+          if (!categories.includes(cat)) { errors.push(`Row ${i + 2}: Invalid category "${cat}"`); return; }
+          imported.push({
+            itemCode: '', itemName: name, category: cat,
+            subcategory: String(row[hSub] || '').trim(),
+            unitOfMeasure: String(row[hUnit] || 'Piece').trim(),
+            location: String(row[hLoc] || '').trim(),
+            trackerGroup: (String(row[hTracker] || '').trim()) as '' | 'PPE' | 'Stationery' | 'Job Material' | 'QC',
+            batchControlled: parseBool(row[hBatch]),
+            fefoEnabled: parseBool(row[hFefo]),
+            minimumStock: parseNum(row[hMin]),
+            maximumStock: parseNum(row[hMax]),
+            reorderLevel: parseNum(row[hReorder]),
+            standardShelfLife: parseNum(row[hShelf]),
+            manufacturer: String(row[hMfr] || '').trim(),
+            supplier: String(row[hSup] || '').trim(),
+            msdsRequired: parseBool(row[hMsds]),
+            fifoRequired: parseBool(row[hFifo]),
+            remarks: String(row[hRem] || '').trim(),
+            msdsLink: '', status: 'Active',
+          });
+        });
+        setImportData(imported);
+        setImportErrors(errors);
+      } catch (err: any) {
+        setImportData([]);
+        setImportErrors(['Failed to parse file: ' + (err.message || 'Unknown error')]);
+      }
     };
     reader.readAsArrayBuffer(file);
     e.target.value = '';
@@ -434,8 +453,8 @@ export default function MasterItems() {
       <Modal isOpen={showImportModal} onClose={() => { setShowImportModal(false); setImportData([]); setImportFileName(''); setImportErrors([]); }} title="Bulk Import Items" maxWidth="max-w-3xl">
         <div className="space-y-4">
           <div className="bg-blue-50 rounded-lg p-4">
-            <p className="text-sm text-blue-800 font-medium">CSV Format Requirements</p>
-            <p className="text-xs text-blue-600 mt-1">Columns: Item Name, Category, Subcategory, Unit, Location, Tracker Group, Batch Controlled (Yes/No), FEFO (Yes/No), Min Stock, Max Stock, Reorder Level, Shelf Life (days), Manufacturer, Supplier, MSDS Required (Yes/No), FIFO Required (Yes/No), Remarks</p>
+            <p className="text-sm text-blue-800 font-medium">Supported Files: Excel (.xlsx, .xls) or CSV</p>
+            <p className="text-xs text-blue-600 mt-1">Required column: "Item Name" and "Category". Other columns are optional. The system auto-detects column names.</p>
             <p className="text-xs text-blue-600 mt-1">Valid Categories: {categories.join(', ')}</p>
           </div>
           <div className="flex gap-3">
