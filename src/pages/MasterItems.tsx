@@ -38,10 +38,11 @@ export default function MasterItems() {
   const [formData, setFormData] = useState(emptyItem);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [importTab, setImportTab] = useState<'file' | 'paste'>('paste');
   const [importData, setImportData] = useState<Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[]>([]);
   const [importFileName, setImportFileName] = useState('');
   const [importErrors, setImportErrors] = useState<string[]>([]);
-  const [importColumns, setImportColumns] = useState<string[]>([]);
+  const [pasteText, setPasteText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const duplicateName = formData.itemName && masterItems.find(i => i.itemName.toLowerCase() === formData.itemName.toLowerCase() && i.id !== editItem?.id);
@@ -174,12 +175,10 @@ export default function MasterItems() {
         const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: '' });
         if (rows.length === 0) {
           setImportData([]);
-          setImportColumns([]);
           setImportErrors(['File is empty or has no data rows']);
           return;
         }
         const headers = Object.keys(rows[0]);
-        setImportColumns(headers);
         const errors: string[] = [];
         const imported: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[] = [];
 
@@ -244,7 +243,6 @@ export default function MasterItems() {
         setImportErrors(errors);
       } catch (err: any) {
         setImportData([]);
-        setImportColumns([]);
         setImportErrors(['Failed to parse file: ' + (err.message || 'Unknown error')]);
       }
     };
@@ -258,6 +256,48 @@ export default function MasterItems() {
     setImportData([]);
     setImportFileName('');
     setImportErrors([]);
+    setPasteText('');
+  };
+
+  const handlePaste = () => {
+    if (!pasteText.trim()) { setImportErrors(['Nothing pasted']); return; }
+    const lines = pasteText.trim().split('\n').filter(l => l.trim());
+    if (lines.length < 2) { setImportErrors(['Need at least a header row + 1 data row']); return; }
+    const delimiter = lines[0].includes('\t') ? '\t' : ',';
+    const headers = lines[0].split(delimiter).map(h => h.trim().replace(/^"|"$/g, ''));
+    const findCol = (patterns: RegExp[]) => headers.findIndex(h => patterns.some(p => p.test(h)));
+    const colName = findCol([/^item\s*name/i, /^name$/i, /^product/i, /^item$/i, /^description/i, /^material/i]);
+    const colCat = findCol([/^category$/i, /^cat$/i, /^type$/i, /^group$/i]);
+    const colSub = findCol([/^subcategory/i, /^sub/i]);
+    const colUnit = findCol([/^unit/i, /^uom$/i]);
+    const colLoc = findCol([/^location$/i, /^loc$/i]);
+    const colTracker = findCol([/^tracker/i]);
+    const colRem = findCol([/^remark/i, /^note$/i]);
+    if (colName < 0) { setImportData([]); setImportErrors(['Cannot find "Item Name" column. Headers found: ' + headers.join(' | ')]); return; }
+    if (colCat < 0) { setImportData([]); setImportErrors(['Cannot find "Category" column. Headers found: ' + headers.join(' | ')]); return; }
+    const getVal = (cols: string[], idx: number) => idx >= 0 ? (cols[idx] || '').trim() : '';
+    const errors: string[] = [];
+    const imported: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
+      const name = getVal(cols, colName);
+      if (!name) { errors.push(`Row ${i + 1}: Missing item name`); continue; }
+      const cat = getVal(cols, colCat);
+      if (!cat || !categories.includes(cat)) { errors.push(`Row ${i + 1}: Invalid category "${cat}" for "${name}"`); continue; }
+      imported.push({
+        itemCode: '', itemName: name, category: cat,
+        subcategory: getVal(cols, colSub),
+        unitOfMeasure: getVal(cols, colUnit) || 'Piece',
+        location: getVal(cols, colLoc),
+        trackerGroup: (getVal(cols, colTracker)) as '' | 'PPE' | 'Stationery' | 'Job Material' | 'QC',
+        batchControlled: true, fefoEnabled: false,
+        minimumStock: 0, maximumStock: 0, reorderLevel: 0, standardShelfLife: 0,
+        manufacturer: '', supplier: '', msdsRequired: false, fifoRequired: false,
+        remarks: getVal(cols, colRem), msdsLink: '', status: 'Active',
+      });
+    }
+    setImportData(imported);
+    setImportErrors(errors);
   };
 
   return (
@@ -467,42 +507,55 @@ export default function MasterItems() {
         </div>
       </Modal>
 
-      <Modal isOpen={showImportModal} onClose={() => { setShowImportModal(false); setImportData([]); setImportFileName(''); setImportErrors([]); }} title="Bulk Import Items" maxWidth="max-w-3xl">
+      <Modal isOpen={showImportModal} onClose={() => { setShowImportModal(false); setImportData([]); setImportFileName(''); setImportErrors([]); setPasteText(''); }} title="Bulk Import Items" maxWidth="max-w-3xl">
         <div className="space-y-4">
-          <div className="bg-blue-50 rounded-lg p-4">
-            <p className="text-sm text-blue-800 font-medium">Supported Files: Excel (.xlsx, .xls) or CSV</p>
-            <p className="text-xs text-blue-600 mt-1">Required columns: <strong>Item Name</strong> and <strong>Category</strong> (must match exactly: {categories.join(', ')}).</p>
-            <p className="text-xs text-blue-600">The system auto-detects column names. Other columns are optional.</p>
+          <div className="flex gap-2 border-b border-gray-200 pb-0">
+            <button onClick={() => setImportTab('paste')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${importTab === 'paste' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Paste from Excel</button>
+            <button onClick={() => setImportTab('file')} className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${importTab === 'file' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Upload File</button>
           </div>
-          <div className="flex gap-3">
-            <button onClick={downloadTemplate} className="btn-secondary flex items-center gap-2 text-sm">
-              <Download className="w-4 h-4" /> Download Template
-            </button>
-            <button onClick={() => fileInputRef.current?.click()} className="btn-primary flex items-center gap-2 text-sm">
-              <Upload className="w-4 h-4" /> Choose CSV File
-            </button>
-            <input ref={fileInputRef} type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
-          </div>
-          {importFileName && (
-            <p className="text-sm text-gray-600">File: <span className="font-medium">{importFileName}</span></p>
-          )}
-          {importColumns.length > 0 && (
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-xs font-medium text-gray-700 mb-2">Detected Columns ({importColumns.length}):</p>
-              <div className="flex flex-wrap gap-1">
-                {importColumns.map((col, i) => {
-                  const isName = /^item\s*name|^name$|^product|^item$|^description|^material|^itemName$/i.test(col);
-                  const isCat = /^category$|^cat$|^type$|^group$/i.test(col);
-                  return (
-                    <span key={i} className={`text-xs px-2 py-0.5 rounded ${isName || isCat ? 'bg-green-100 text-green-700 font-medium' : 'bg-gray-200 text-gray-600'}`}>
-                      {col}{isName ? ' (Name)' : isCat ? ' (Category)' : ''}
-                    </span>
-                  );
-                })}
+
+          {importTab === 'paste' && (
+            <div className="space-y-3">
+              <div className="bg-green-50 rounded-lg p-4">
+                <p className="text-sm text-green-800 font-medium">How to use:</p>
+                <ol className="text-xs text-green-700 mt-1 list-decimal ml-4 space-y-1">
+                  <li>Open your Excel/Google Sheets</li>
+                  <li>Select all data including the header row (the first row should have column names like: Item Name, Category...)</li>
+                  <li>Copy <strong>Ctrl+C</strong></li>
+                  <li>Paste below <strong>Ctrl+V</strong></li>
+                  <li>Click <strong>Parse</strong> to preview</li>
+                </ol>
+                <p className="text-xs text-green-600 mt-2">Required columns: <strong>Item Name</strong> and <strong>Category</strong> (values: {categories.join(', ')}). Other columns are optional.</p>
               </div>
-              <p className="text-xs text-gray-500 mt-2">Green = matched as required columns. Make sure your Excel has columns for Item Name and Category.</p>
+              <textarea
+                value={pasteText}
+                onChange={(e) => { setPasteText(e.target.value); setImportData([]); setImportErrors([]); }}
+                placeholder={"Paste your Excel data here...\n\nExample:\nItem Name\tCategory\tUnit\nSafety Helmet\tPPE\tPiece\nBall Bearing\tSpare Parts\tPiece"}
+                className="w-full h-48 p-3 border border-gray-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <button onClick={handlePaste} className="btn-primary text-sm">Parse</button>
             </div>
           )}
+
+          {importTab === 'file' && (
+            <div className="space-y-3">
+              <div className="bg-blue-50 rounded-lg p-4">
+                <p className="text-sm text-blue-800 font-medium">Supported: Excel (.xlsx, .xls) or CSV</p>
+                <p className="text-xs text-blue-600 mt-1">Required: <strong>Item Name</strong> and <strong>Category</strong> columns.</p>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={downloadTemplate} className="btn-secondary flex items-center gap-2 text-sm">
+                  <Download className="w-4 h-4" /> Download Template
+                </button>
+                <button onClick={() => fileInputRef.current?.click()} className="btn-primary flex items-center gap-2 text-sm">
+                  <Upload className="w-4 h-4" /> Choose File
+                </button>
+                <input ref={fileInputRef} type="file" accept=".csv,.txt,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
+              </div>
+              {importFileName && <p className="text-sm text-gray-600">File: <span className="font-medium">{importFileName}</span></p>}
+            </div>
+          )}
+
           {importErrors.length > 0 && (
             <div className="bg-red-50 rounded-lg p-3 max-h-32 overflow-y-auto">
               <p className="text-sm text-red-700 font-medium mb-1">Errors ({importErrors.length}):</p>
@@ -511,19 +564,21 @@ export default function MasterItems() {
           )}
           {importData.length > 0 && (
             <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">Preview ({importData.length} items to import):</p>
+              <p className="text-sm font-medium text-gray-700 mb-2">Preview ({importData.length} items):</p>
               <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 sticky top-0">
-                    <tr><th className="px-3 py-2 text-left">Name</th><th className="px-3 py-2 text-left">Category</th><th className="px-3 py-2 text-left">Unit</th><th className="px-3 py-2 text-left">Tracker</th></tr>
+                    <tr><th className="px-3 py-2 text-left">#</th><th className="px-3 py-2 text-left">Name</th><th className="px-3 py-2 text-left">Category</th><th className="px-3 py-2 text-left">Unit</th><th className="px-3 py-2 text-left">Tracker</th><th className="px-3 py-2 text-left">Location</th></tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {importData.map((item, i) => (
                       <tr key={i} className="hover:bg-gray-50">
-                        <td className="px-3 py-2">{item.itemName}</td>
-                        <td className="px-3 py-2">{item.category}</td>
+                        <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                        <td className="px-3 py-2 font-medium">{item.itemName}</td>
+                        <td className="px-3 py-2"><span className="badge-blue">{item.category}</span></td>
                         <td className="px-3 py-2">{item.unitOfMeasure}</td>
                         <td className="px-3 py-2">{item.trackerGroup || '-'}</td>
+                        <td className="px-3 py-2">{item.location || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -532,7 +587,7 @@ export default function MasterItems() {
             </div>
           )}
           <div className="flex justify-end gap-3 mt-4 pt-4 border-t">
-            <button onClick={() => { setShowImportModal(false); setImportData([]); setImportFileName(''); setImportErrors([]); }} className="btn-secondary">Cancel</button>
+            <button onClick={() => { setShowImportModal(false); setImportData([]); setImportFileName(''); setImportErrors([]); setPasteText(''); }} className="btn-secondary">Cancel</button>
             <button onClick={handleImport} disabled={importData.length === 0} className="btn-primary disabled:opacity-50">
               Import {importData.length} Items
             </button>
