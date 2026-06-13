@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type {
   MasterItem, Employee, StockInRecord, BatchLedgerEntry,
   StockOutRecord, InventoryBalance, StockAdjustment,
@@ -184,7 +185,7 @@ function logAudit(state: WMSState, action: string, module: string, recordId: str
   };
 }
 
-export const useWMSStore = create<WMSState>((set, get) => ({
+export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   masterItems: mockMasterItems,
   employees: mockEmployees,
   stockInRecords: mockStockInRecords,
@@ -472,4 +473,25 @@ export const useWMSStore = create<WMSState>((set, get) => ({
   getBatchesByItem: (itemId) => get().batchLedger.filter(b => b.itemId === itemId),
   getStockOutByEmployee: (empId) => get().stockOutRecords.filter(r => r.employeeId === empId),
   getEmployeePPEHistory: (empId) => get().stockOutRecords.filter(r => r.employeeId === empId),
+}), {
+  name: 'wms-storage',
+  partialize: (state) => ({
+    masterItems: state.masterItems,
+    employees: state.employees,
+    stockInRecords: state.stockInRecords,
+    batchLedger: state.batchLedger,
+    stockOutRecords: state.stockOutRecords,
+    inventoryBalances: state.inventoryBalances,
+    stockAdjustments: state.stockAdjustments,
+    expiryAlerts: state.expiryAlerts,
+    auditTrail: state.auditTrail,
+    users: state.users,
+    jobs: state.jobs,
+    stockAlerts: state.stockAlerts,
+    alertEmail: state.alertEmail,
+    batchSequence: state.batchSequence,
+    grnSequence: state.grnSequence,
+    issueSequence: state.issueSequence,
+    adjustmentSequence: state.adjustmentSequence,
+  }),
 }));
