@@ -38,22 +38,24 @@ interface User {
 
 function SyncToServer() {
   const { masterItems, employees, batchLedger, jobs, users } = useWMSStore();
-  useEffect(() => {
+
+  const syncToServer = () => {
     const token = localStorage.getItem('wms_token');
     if (!token) return;
-    const itemsWithQty = masterItems.map((item) => {
-      const availableQty = batchLedger.filter((b) => b.itemId === item.id).reduce((s, b) => s + b.balance, 0);
+    const store = useWMSStore.getState();
+    const itemsWithQty = store.masterItems.map((item) => {
+      const availableQty = store.batchLedger.filter((b) => b.itemId === item.id).reduce((s, b) => s + b.balance, 0);
       return { ...item, _availableQty: availableQty };
     });
     fetch('/api/public/sync-data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ items: itemsWithQty, employees, jobs }),
+      body: JSON.stringify({ items: itemsWithQty, employees: store.employees, jobs: store.jobs }),
     }).catch(() => {});
     fetch('/api/public/sync-users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ users }),
+      body: JSON.stringify({ users: store.users }),
     }).catch(() => {});
     fetch('/api/server/stockout-records', {
       headers: { Authorization: `Bearer ${token}` },
@@ -61,10 +63,8 @@ function SyncToServer() {
       .then((r) => r.json())
       .then((serverRecords) => {
         if (Array.isArray(serverRecords) && serverRecords.length > 0) {
-          const state = useWMSStore.getState();
-          const existingIssueNumbers = new Set(state.stockOutRecords.map((r: any) => r.issueNumber));
+          const existingIssueNumbers = new Set(store.stockOutRecords.map((r: any) => r.issueNumber));
           const newRecords = serverRecords.filter((r: any) => !existingIssueNumbers.has(r.issueNumber));
-          const store = useWMSStore.getState();
           for (const r of newRecords) {
             const storeItem = store.masterItems.find((i: any) => i.itemCode === r.itemCode);
             store.applyServerStockOut({ ...r, itemId: storeItem ? storeItem.id : r.itemId });
@@ -72,7 +72,14 @@ function SyncToServer() {
         }
       })
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    syncToServer();
+    const interval = setInterval(syncToServer, 15000);
+    return () => clearInterval(interval);
   }, [masterItems, employees, batchLedger, jobs, users]);
+
   return null;
 }
 

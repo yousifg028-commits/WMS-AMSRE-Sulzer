@@ -60,7 +60,7 @@ export default function PublicStockOutForm() {
   const empInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch('/api/public/stock-data')
+    fetch('/api/public/stock-data?t=' + Date.now())
       .then((res) => res.json())
       .then((data) => {
         setItems(data.items || []);

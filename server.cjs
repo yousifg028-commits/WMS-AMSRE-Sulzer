@@ -30,6 +30,8 @@ function saveData(data) {
     var full = Object.assign({
       extraUsers: extraUsers,
       publicEmployees: publicEmployees,
+      publicItems: publicItems,
+      publicJobs: publicJobs,
       pendingRequests: pendingRequests,
       serverStockOutRecords: serverStockOutRecords,
       stockOutSequence: stockOutSequence,
@@ -196,7 +198,7 @@ app.get('/api/email-status', authMiddleware, function(req, res) {
   res.json({ configured: !!emailTransporter, email: alertEmailAddress || '' });
 });
 
-var publicItems = [
+var publicItems = persistedData.publicItems || [
   { id: '1', itemCode: 'PPE-GLV-001', itemName: 'Nitrile Gloves (L)', unit: 'Box', trackerGroup: 'PPE', availableQty: 200 },
   { id: '2', itemCode: 'PPE-MSK-002', itemName: 'N95 Respirator Mask', unit: 'Box', trackerGroup: 'PPE', availableQty: 150 },
   { id: '3', itemCode: 'PPE-EST-003', itemName: 'Safety Glasses', unit: 'Piece', trackerGroup: 'PPE', availableQty: 100 },
@@ -214,7 +216,7 @@ var publicItems = [
   { id: '15', itemCode: 'QC-SMP-002', itemName: 'Sample Collection Bags', unit: 'Box(100)', trackerGroup: 'QC', availableQty: 50 },
 ];
 var publicEmployees = persistedData.publicEmployees || [];
-var publicJobs = [];
+var publicJobs = persistedData.publicJobs || [];
 var pendingRequests = persistedData.pendingRequests || [];
 var requestSequence = persistedData.requestSequence || 1000;
 var serverStockOutRecords = persistedData.serverStockOutRecords || [];

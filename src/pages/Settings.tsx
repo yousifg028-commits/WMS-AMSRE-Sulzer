@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Settings as SettingsIcon, Save, Bell, Database, Globe, Mail } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Bell, Database, Globe, Mail, FileSpreadsheet, Check, X, RefreshCw } from 'lucide-react';
 import { useWMSStore } from '../store';
+import { GoogleSheetsSync } from '../utils/googleSheetsSync';
 
 export default function SettingsPage() {
   const { alertEmail, setAlertEmail } = useWMSStore();
-  const [settings, setSettings] = useState({
+  const [settings, setSettings] = useState(() => ({
     companyName: 'AMSER - Sulzer',
     warehouseName: 'Main Warehouse',
     nearExpiryDays: 30,
@@ -17,7 +18,8 @@ export default function SettingsPage() {
     dateFormat: 'dd/MM/yyyy',
     timezone: 'UTC',
     maxSearchResults: 100,
-  });
+    googleSheetsUrl: localStorage.getItem('wms_google_sheets_url') || '',
+  }));
 
   const [emailConfig, setEmailConfig] = useState({
     email: alertEmail || '',
@@ -26,11 +28,82 @@ export default function SettingsPage() {
   const [emailStatus, setEmailStatus] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
 
+  const [gsStatus, setGsStatus] = useState('');
+  const [gsLoading, setGsLoading] = useState(false);
+  const [gsConnected, setGsConnected] = useState<boolean | null>(null);
+
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
+    localStorage.setItem('wms_google_sheets_url', settings.googleSheetsUrl);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleGsConnect = async () => {
+    if (!settings.googleSheetsUrl) return;
+    setGsLoading(true);
+    setGsStatus('');
+    try {
+      const sync = new GoogleSheetsSync(settings.googleSheetsUrl);
+      const ok = await sync.ping();
+      if (ok) {
+        setGsConnected(true);
+        setGsStatus('Connected to Google Sheets!');
+        localStorage.setItem('wms_google_sheets_url', settings.googleSheetsUrl);
+      } else {
+        setGsConnected(false);
+        setGsStatus('Cannot reach Google Sheets. Check the URL and sharing settings.');
+      }
+    } catch (err: any) {
+      setGsConnected(false);
+      setGsStatus('Error: ' + (err.message || 'Connection failed'));
+    }
+    setGsLoading(false);
+  };
+
+  const handleGsPull = async () => {
+    if (!settings.googleSheetsUrl) return;
+    setGsLoading(true);
+    setGsStatus('');
+    try {
+      const sync = new GoogleSheetsSync(settings.googleSheetsUrl);
+      const allData = await sync.pullAll();
+      localStorage.setItem('wms_gs_pull_data', JSON.stringify(allData));
+      const totalRows = Object.values(allData).reduce((s: number, arr: any) => s + (Array.isArray(arr) ? arr.length : 0), 0);
+      setGsStatus(`Pulled ${totalRows} rows from Google Sheets. Reload page to apply.`);
+      setGsConnected(true);
+    } catch (err: any) {
+      setGsStatus('Pull failed: ' + (err.message || 'Unknown error'));
+    }
+    setGsLoading(false);
+  };
+
+  const handleGsPush = async () => {
+    if (!settings.googleSheetsUrl) return;
+    setGsLoading(true);
+    setGsStatus('');
+    try {
+      const sync = new GoogleSheetsSync(settings.googleSheetsUrl);
+      const store = useWMSStore.getState();
+      const localData: Record<string, any[]> = {
+        MasterItems: store.masterItems,
+        Employees: store.employees,
+        StockIn: store.stockInRecords,
+        StockOut: store.stockOutRecords,
+        BatchLedger: store.batchLedger,
+        InventoryBalances: store.inventoryBalances,
+        Jobs: store.jobs,
+        AuditTrail: store.auditTrail,
+        Users: store.users,
+      };
+      await sync.syncFull(localData);
+      setGsStatus('All data pushed to Google Sheets!');
+      setGsConnected(true);
+    } catch (err: any) {
+      setGsStatus('Push failed: ' + (err.message || 'Unknown error'));
+    }
+    setGsLoading(false);
   };
 
   const handleEmailConfig = async () => {
@@ -188,6 +261,49 @@ export default function SettingsPage() {
             <div>
               <label className="label-field">Max Search Results</label>
               <input type="number" value={settings.maxSearchResults} onChange={(e) => setSettings({ ...settings, maxSearchResults: +e.target.value })} className="input-field" />
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900 mb-4">
+            <FileSpreadsheet className="w-4 h-4" /> Google Sheets Database
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="label-field">Apps Script Web App URL</label>
+              <input type="url" value={settings.googleSheetsUrl} onChange={(e) => setSettings({ ...settings, googleSheetsUrl: e.target.value })} className="input-field" placeholder="https://script.google.com/macros/s/XXXX/exec" />
+              <p className="text-xs text-gray-500 mt-1">Paste the URL from Google Apps Script deployment</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {gsConnected === true && <span className="flex items-center gap-1 text-xs text-green-600"><Check className="w-3 h-3" /> Connected</span>}
+              {gsConnected === false && <span className="flex items-center gap-1 text-xs text-red-600"><X className="w-3 h-3" /> Failed</span>}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleGsConnect} disabled={gsLoading || !settings.googleSheetsUrl} className="btn-secondary flex items-center gap-2 text-xs">
+                <FileSpreadsheet className="w-3 h-3" /> Test Connection
+              </button>
+              <button onClick={handleGsPull} disabled={gsLoading || !settings.googleSheetsUrl} className="btn-secondary flex items-center gap-2 text-xs">
+                <RefreshCw className={`w-3 h-3 ${gsLoading ? 'animate-spin' : ''}`} /> Pull from Sheets
+              </button>
+              <button onClick={handleGsPush} disabled={gsLoading || !settings.googleSheetsUrl} className="btn-primary flex items-center gap-2 text-xs">
+                <FileSpreadsheet className="w-3 h-3" /> Push to Sheets
+              </button>
+            </div>
+            {gsStatus && (
+              <p className={`text-sm ${gsStatus.includes('success') || gsStatus.includes('Connected') || gsStatus.includes('Pulled') || gsStatus.includes('pushed') ? 'text-green-600' : 'text-red-600'}`}>{gsStatus}</p>
+            )}
+            <div className="bg-yellow-50 rounded-lg p-3">
+              <p className="text-xs text-yellow-800 font-medium">Setup Instructions:</p>
+              <ol className="text-xs text-yellow-700 mt-1 list-decimal ml-4 space-y-1">
+                <li>Create a new Google Sheet</li>
+                <li>Go to Extensions &gt; Apps Script</li>
+                <li>Delete any code there and paste the code from <code>google-apps-script.gs</code></li>
+                <li>Click Deploy &gt; New Deployment</li>
+                <li>Type: Web App, Execute as: Me, Access: Anyone</li>
+                <li>Copy the Web App URL and paste it above</li>
+                <li>Click "Test Connection" then "Push to Sheets"</li>
+              </ol>
             </div>
           </div>
         </div>
