@@ -98,7 +98,6 @@ app.post('/api/users', authMiddleware, function(req, res) {
   if (users.find(function(u) { return u.username === body.username; })) return res.status(400).json({ error: 'Username exists' });
   if (extraUsers.find(function(u) { return u.username === body.username; })) return res.status(400).json({ error: 'Username exists' });
   var newUser = { id: String(Date.now()), username: body.username, password: hashPassword(body.password || body.username), role: body.role, fullName: body.fullName || body.username };
-  users.push(newUser);
   extraUsers.push(newUser);
   saveData();
   res.json({ id: newUser.id, username: body.username, role: body.role, fullName: newUser.fullName });
@@ -280,19 +279,32 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   persistedData.issueSequence = body.issueSequence || 1;
   persistedData.adjustmentSequence = body.adjustmentSequence || 1;
   persistedData.extraUsers = body.extraUsers || [];
+  persistedData.publicEmployees = body.publicEmployees || [];
   saveData();
   res.json({ ok: true });
 });
 
 app.get('/api/public/stock-data', function(req, res) {
-  var items = (persistedData.masterItems || []).filter(function(i) { return i.status === 'Active'; }).map(function(item) {
-    var balance = (persistedData.batchLedger || []).filter(function(b) { return b.itemId === item.id; }).reduce(function(s, b) { return s + b.balance; }, 0);
+  var storedItems = persistedData.masterItems || [];
+  var storedEmps = persistedData.employees || [];
+  var storedJobs = persistedData.jobs || [];
+  var storedBatches = persistedData.batchLedger || [];
+
+  var items = storedItems.filter(function(i) { return i.status === 'Active'; }).map(function(item) {
+    var balance = storedBatches.filter(function(b) { return b.itemId === item.id; }).reduce(function(s, b) { return s + b.balance; }, 0);
     return { id: item.id, itemCode: item.itemCode, itemName: item.itemName, unit: item.unitOfMeasure, trackerGroup: item.trackerGroup || '', availableQty: balance };
   });
-  var emps = (persistedData.employees || []).filter(function(e) { return e.status === 'Active'; }).map(function(e) {
+
+  if (items.length === 0 && publicItems.length > 0) items = publicItems.filter(function(i) { return i.status !== 'Archived'; });
+
+  var emps = storedEmps.filter(function(e) { return e.status === 'Active'; }).map(function(e) {
     return { id: e.id, employeeName: e.employeeName, department: e.department };
   });
-  var jobs = (persistedData.jobs || []).filter(function(j) { return j.status === 'Active'; });
+  if (emps.length === 0 && publicEmployees.length > 0) emps = publicEmployees.filter(function(e) { return e.status !== 'Archived'; });
+
+  var jobs = storedJobs.filter(function(j) { return j.status === 'Active'; });
+  if (jobs.length === 0 && publicJobs.length > 0) jobs = publicJobs;
+
   res.json({ items: items, employees: emps, jobs: jobs });
 });
 
@@ -333,10 +345,21 @@ app.post('/api/public/stock-out', function(req, res) {
   if (!body.employeeName || !body.itemId || !body.quantity) {
     return res.status(400).json({ error: 'All required fields must be filled' });
   }
-  var item = publicItems.find(function(i) { return i.id === body.itemId; });
+
+  var storedItems = (persistedData.masterItems || []).filter(function(i) { return i.status === 'Active'; });
+  var storedBatches = persistedData.batchLedger || [];
+
+  var item = storedItems.find(function(i) { return i.id === body.itemId; });
+  if (!item) item = publicItems.find(function(i) { return i.id === body.itemId; });
   if (!item) return res.status(400).json({ error: 'Item not found' });
   if (body.quantity <= 0) return res.status(400).json({ error: 'Quantity must be greater than 0' });
-  if (body.quantity > item.availableQty) return res.status(400).json({ error: 'Insufficient stock. Available: ' + item.availableQty });
+
+  var availableQty = storedBatches.filter(function(b) { return b.itemId === item.id; }).reduce(function(s, b) { return s + b.balance; }, 0);
+  if (availableQty === 0) {
+    var fallback = publicItems.find(function(i) { return i.id === body.itemId; });
+    if (fallback) availableQty = fallback.availableQty;
+  }
+  if (body.quantity > availableQty) return res.status(400).json({ error: 'Insufficient stock. Available: ' + availableQty });
 
   requestSequence++;
   var request = {
@@ -349,7 +372,7 @@ app.post('/api/public/stock-out', function(req, res) {
     itemName: item.itemName,
     trackerGroup: item.trackerGroup || '',
     quantity: body.quantity,
-    unit: item.unit,
+    unit: item.unitOfMeasure || item.unit || '',
     jobNumber: body.jobNumber || '',
     remarks: body.remarks || '',
     status: 'Pending',

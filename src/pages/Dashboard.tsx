@@ -8,7 +8,7 @@ import {
   Clock, ArrowDown, ArrowUp, DollarSign,
 } from 'lucide-react';
 import { useWMSStore } from '../store';
-import { getExpiryStatus, formatNumber, daysUntilExpiry } from '../utils/helpers';
+import { getExpiryStatus, formatNumber } from '../utils/helpers';
 import { format, subDays } from 'date-fns';
 
 const COLORS = ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
@@ -287,7 +287,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {daysUntilExpiry('2026-06-15') <= 30 && (
+      {(stats.nearExpiryCount > 0 || stats.expiredCount > 0) && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-yellow-600" />

@@ -25,6 +25,7 @@ interface Job {
 
 interface FormData {
   employeeName: string;
+  department: string;
   itemId: string;
   quantity: string;
   jobNumber: string;
@@ -37,6 +38,7 @@ export default function PublicStockOutForm() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [formData, setFormData] = useState<FormData>({
     employeeName: '',
+    department: '',
     itemId: '',
     quantity: '',
     jobNumber: '',
@@ -127,7 +129,7 @@ export default function PublicStockOutForm() {
   });
 
   const handleEmpSelect = (emp: Employee) => {
-    setFormData((prev) => ({ ...prev, employeeName: emp.employeeName }));
+    setFormData((prev) => ({ ...prev, employeeName: emp.employeeName, department: emp.department }));
     setEmpSearch(emp.employeeName);
     setShowEmpDropdown(false);
     setEmpHighlightIdx(-1);
@@ -150,7 +152,7 @@ export default function PublicStockOutForm() {
   };
 
   const clearEmp = () => {
-    setFormData((prev) => ({ ...prev, employeeName: '' }));
+    setFormData((prev) => ({ ...prev, employeeName: '', department: '' }));
     setEmpSearch('');
     empInputRef.current?.focus();
   };
@@ -186,6 +188,7 @@ export default function PublicStockOutForm() {
         headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             employeeName: employeeName.trim(),
+            department: formData.department || '',
             itemId: formData.itemId,
             quantity: qty,
             jobNumber: formData.jobNumber.trim(),
@@ -201,7 +204,7 @@ export default function PublicStockOutForm() {
       }
 
       setSuccess(true);
-      setFormData({ employeeName: '', itemId: '', quantity: '', jobNumber: '', remarks: '' });
+      setFormData({ employeeName: '', department: '', itemId: '', quantity: '', jobNumber: '', remarks: '' });
       setSelectedItem(null);
       setItemSearch('');
       setEmpSearch('');
@@ -307,6 +310,13 @@ export default function PublicStockOutForm() {
                 <p className="text-xs text-gray-400 mt-1">No employees in system. You can type your name manually.</p>
               )}
             </div>
+
+            {formData.department && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                <input type="text" value={formData.department} onChange={(e) => setFormData((prev) => ({ ...prev, department: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Department (optional)" />
+              </div>
+            )}
 
             <div className="relative" ref={dropdownRef}>
               <label className="block text-sm font-medium text-gray-700 mb-1">Item *</label>

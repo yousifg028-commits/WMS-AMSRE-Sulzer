@@ -5,21 +5,25 @@ import { GoogleSheetsSync } from '../utils/googleSheetsSync';
 
 export default function SettingsPage() {
   const { alertEmail, setAlertEmail } = useWMSStore();
-  const [settings, setSettings] = useState(() => ({
-    companyName: 'AMSER - Sulzer',
-    warehouseName: 'Main Warehouse',
-    nearExpiryDays: 30,
-    warningDays: 90,
-    emailAlerts: false,
-    autoBatchGeneration: true,
-    fefoPriority: true,
-    negativeStockPrevention: true,
-    auditLogRetention: 365,
-    dateFormat: 'dd/MM/yyyy',
-    timezone: 'UTC',
-    maxSearchResults: 100,
-    googleSheetsUrl: localStorage.getItem('wms_google_sheets_url') || '',
-  }));
+  const [settings, setSettings] = useState(() => {
+    const saved = localStorage.getItem('wms_settings');
+    const defaults = {
+      companyName: 'AMSER - Sulzer',
+      warehouseName: 'Main Warehouse',
+      nearExpiryDays: 30,
+      warningDays: 90,
+      emailAlerts: false,
+      autoBatchGeneration: true,
+      fefoPriority: true,
+      negativeStockPrevention: true,
+      auditLogRetention: 365,
+      dateFormat: 'dd/MM/yyyy',
+      timezone: 'UTC',
+      maxSearchResults: 100,
+      googleSheetsUrl: localStorage.getItem('wms_google_sheets_url') || '',
+    };
+    return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+  });
 
   const [emailConfig, setEmailConfig] = useState({
     email: alertEmail || '',
@@ -35,6 +39,7 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
+    localStorage.setItem('wms_settings', JSON.stringify(settings));
     localStorage.setItem('wms_google_sheets_url', settings.googleSheetsUrl);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);

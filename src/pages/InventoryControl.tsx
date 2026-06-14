@@ -12,6 +12,7 @@ export default function InventoryControl() {
   const [filterCat, setFilterCat] = useState('');
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showCycleCount, setShowCycleCount] = useState(false);
+  const [physicalCounts, setPhysicalCounts] = useState<Record<string, number>>({});
   const [adjustForm, setAdjustForm] = useState({
     adjustmentDate: format(new Date(), 'yyyy-MM-dd'),
     itemId: '',
@@ -139,7 +140,10 @@ export default function InventoryControl() {
 
       {showCycleCount && (
         <div className="card">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">Cycle Count Sheet</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-900">Cycle Count Sheet</h3>
+            <button onClick={() => setPhysicalCounts({})} className="text-sm text-blue-600 hover:underline">Clear All</button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -152,17 +156,28 @@ export default function InventoryControl() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filtered.map(item => (
-                  <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="table-cell font-medium">{item.itemCode}</td>
-                    <td className="table-cell">{item.itemName}</td>
-                    <td className="table-cell text-right font-medium">{item.totalQty}</td>
-                    <td className="table-cell text-right">
-                      <input type="number" min="0" className="w-24 text-right input-field py-1" placeholder="0" />
-                    </td>
-                    <td className="table-cell text-right">-</td>
-                  </tr>
-                ))}
+                {filtered.map(item => {
+                  const physical = physicalCounts[item.id];
+                  const variance = physical !== undefined ? physical - item.totalQty : null;
+                  return (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="table-cell font-medium">{item.itemCode}</td>
+                      <td className="table-cell">{item.itemName}</td>
+                      <td className="table-cell text-right font-medium">{item.totalQty}</td>
+                      <td className="table-cell text-right">
+                        <input type="number" min="0" className="w-24 text-right input-field py-1" placeholder="-"
+                          value={physicalCounts[item.id] ?? ''}
+                          onChange={(e) => setPhysicalCounts({ ...physicalCounts, [item.id]: +e.target.value })} />
+                      </td>
+                      <td className="table-cell text-right font-medium">
+                        {variance !== null ? (
+                          variance === 0 ? <span className="text-green-600">0</span>
+                          : <span className="text-red-600">{variance > 0 ? '+' : ''}{variance}</span>
+                        ) : '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

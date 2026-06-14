@@ -68,6 +68,7 @@ function SyncToServer() {
         issueSequence: s.issueSequence,
         adjustmentSequence: s.adjustmentSequence,
         extraUsers: (s as any).extraUsers || [],
+        publicEmployees: (s as any).publicEmployees || [],
       }),
     }).catch(() => {});
   };
