@@ -25,20 +25,19 @@ function loadData() {
   return null;
 }
 
-function saveData(data) {
+function saveData(extra) {
   try {
-    var full = Object.assign({
-      extraUsers: extraUsers,
-      publicEmployees: publicEmployees,
-      publicItems: publicItems,
-      publicJobs: publicJobs,
-      pendingRequests: pendingRequests,
-      serverStockOutRecords: serverStockOutRecords,
-      stockOutSequence: stockOutSequence,
-      requestSequence: requestSequence,
-    }, data || {});
-    fs.writeFileSync(DATA_FILE, JSON.stringify(full, null, 2));
-  } catch {}
+    if (extra) Object.assign(persistedData, extra);
+    persistedData.extraUsers = extraUsers;
+    persistedData.publicEmployees = publicEmployees;
+    persistedData.publicItems = publicItems;
+    persistedData.publicJobs = publicJobs;
+    persistedData.pendingRequests = pendingRequests;
+    persistedData.serverStockOutRecords = serverStockOutRecords;
+    persistedData.stockOutSequence = stockOutSequence;
+    persistedData.requestSequence = requestSequence;
+    fs.writeFileSync(DATA_FILE, JSON.stringify(persistedData, null, 2));
+  } catch(e) { console.error('saveData error:', e.message); }
 }
 
 var persistedData = loadData() || { extraUsers: [] };
@@ -237,6 +236,52 @@ app.post('/api/public/sync-data', authMiddleware, function(req, res) {
   publicJobs = (body.jobs || []).filter(function(j) { return j.status === 'Active'; });
   saveData();
   res.json({ ok: true, items: publicItems.length, employees: publicEmployees.length });
+});
+
+// Full sync - GET: server sends ALL data to client
+app.get('/api/full-sync', authMiddleware, function(req, res) {
+  res.json({
+    masterItems: persistedData.masterItems || [],
+    employees: persistedData.employees || [],
+    stockInRecords: persistedData.stockInRecords || [],
+    stockOutRecords: persistedData.stockOutRecords || [],
+    batchLedger: persistedData.batchLedger || [],
+    inventoryBalances: persistedData.inventoryBalances || [],
+    jobs: persistedData.jobs || [],
+    users: persistedData.users || [],
+    stockAdjustments: persistedData.stockAdjustments || [],
+    auditTrail: persistedData.auditTrail || [],
+    alertEmail: persistedData.alertEmail || '',
+    batchSequence: persistedData.batchSequence || 1,
+    grnSequence: persistedData.grnSequence || 1,
+    issueSequence: persistedData.issueSequence || 1,
+    adjustmentSequence: persistedData.adjustmentSequence || 1,
+    publicEmployees: persistedData.publicEmployees || [],
+    extraUsers: persistedData.extraUsers || [],
+  });
+});
+
+// Full sync - POST: client sends ALL data to server
+app.post('/api/full-sync', authMiddleware, function(req, res) {
+  var body = req.body;
+  persistedData.masterItems = body.masterItems || [];
+  persistedData.employees = body.employees || [];
+  persistedData.stockInRecords = body.stockInRecords || [];
+  persistedData.stockOutRecords = body.stockOutRecords || [];
+  persistedData.batchLedger = body.batchLedger || [];
+  persistedData.inventoryBalances = body.inventoryBalances || [];
+  persistedData.jobs = body.jobs || [];
+  persistedData.users = body.users || [];
+  persistedData.stockAdjustments = body.stockAdjustments || [];
+  persistedData.auditTrail = body.auditTrail || [];
+  persistedData.alertEmail = body.alertEmail || '';
+  persistedData.batchSequence = body.batchSequence || 1;
+  persistedData.grnSequence = body.grnSequence || 1;
+  persistedData.issueSequence = body.issueSequence || 1;
+  persistedData.adjustmentSequence = body.adjustmentSequence || 1;
+  persistedData.extraUsers = body.extraUsers || [];
+  saveData();
+  res.json({ ok: true });
 });
 
 app.get('/api/public/stock-data', function(req, res) {

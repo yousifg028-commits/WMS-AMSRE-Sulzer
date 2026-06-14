@@ -37,48 +37,108 @@ interface User {
 }
 
 function SyncToServer() {
-  const { masterItems, employees, batchLedger, jobs, users } = useWMSStore();
+  const store = useWMSStore;
+  const { masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail } = useWMSStore();
 
-  const syncToServer = () => {
+  const pushToServer = () => {
     const token = localStorage.getItem('wms_token');
     if (!token) return;
-    const store = useWMSStore.getState();
-    const itemsWithQty = store.masterItems.map((item) => {
-      const availableQty = store.batchLedger.filter((b) => b.itemId === item.id).reduce((s, b) => s + b.balance, 0);
+    const s = store.getState();
+    const itemsWithQty = s.masterItems.map((item) => {
+      const availableQty = s.batchLedger.filter((b) => b.itemId === item.id).reduce((sum, b) => sum + b.balance, 0);
       return { ...item, _availableQty: availableQty };
     });
-    fetch('/api/public/sync-data', {
+    fetch('/api/full-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ items: itemsWithQty, employees: store.employees, jobs: store.jobs }),
+      body: JSON.stringify({
+        masterItems: itemsWithQty,
+        employees: s.employees,
+        stockInRecords: s.stockInRecords,
+        stockOutRecords: s.stockOutRecords,
+        batchLedger: s.batchLedger,
+        inventoryBalances: s.inventoryBalances,
+        jobs: s.jobs,
+        users: s.users,
+        stockAdjustments: s.stockAdjustments,
+        auditTrail: s.auditTrail,
+        alertEmail: s.alertEmail,
+        batchSequence: s.batchSequence,
+        grnSequence: s.grnSequence,
+        issueSequence: s.issueSequence,
+        adjustmentSequence: s.adjustmentSequence,
+        extraUsers: (s as any).extraUsers || [],
+      }),
     }).catch(() => {});
-    fetch('/api/public/sync-users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ users: store.users }),
-    }).catch(() => {});
-    fetch('/api/server/stockout-records', {
+  };
+
+  const pullFromServer = () => {
+    const token = localStorage.getItem('wms_token');
+    if (!token) return;
+    fetch('/api/full-sync', {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
-      .then((serverRecords) => {
-        if (Array.isArray(serverRecords) && serverRecords.length > 0) {
-          const existingIssueNumbers = new Set(store.stockOutRecords.map((r: any) => r.issueNumber));
-          const newRecords = serverRecords.filter((r: any) => !existingIssueNumbers.has(r.issueNumber));
-          for (const r of newRecords) {
-            const storeItem = store.masterItems.find((i: any) => i.itemCode === r.itemCode);
-            store.applyServerStockOut({ ...r, itemId: storeItem ? storeItem.id : r.itemId });
+      .then((data) => {
+        if (!data || data.error) return;
+        const s = store.getState();
+        if (data.masterItems && data.masterItems.length > 0) {
+          s.masterItems.length === 0 && useWMSStore.setState({ masterItems: data.masterItems });
+        }
+        if (data.employees && data.employees.length > 0) {
+          s.employees.length === 0 && useWMSStore.setState({ employees: data.employees });
+        }
+        if (data.stockInRecords && data.stockInRecords.length > 0) {
+          s.stockInRecords.length === 0 && useWMSStore.setState({ stockInRecords: data.stockInRecords });
+        }
+        if (data.batchLedger && data.batchLedger.length > 0) {
+          s.batchLedger.length === 0 && useWMSStore.setState({ batchLedger: data.batchLedger });
+        }
+        if (data.inventoryBalances && data.inventoryBalances.length > 0) {
+          s.inventoryBalances.length === 0 && useWMSStore.setState({ inventoryBalances: data.inventoryBalances });
+        }
+        if (data.jobs && data.jobs.length > 0) {
+          s.jobs.length === 0 && useWMSStore.setState({ jobs: data.jobs });
+        }
+        if (data.stockAdjustments && data.stockAdjustments.length > 0) {
+          s.stockAdjustments.length === 0 && useWMSStore.setState({ stockAdjustments: data.stockAdjustments });
+        }
+        if (data.stockOutRecords) {
+          const existingIssueNums = new Set(s.stockOutRecords.map((r: any) => r.issueNumber));
+          const newRecords = data.stockOutRecords.filter((r: any) => !existingIssueNums.has(r.issueNumber));
+          if (newRecords.length > 0) {
+            for (const r of newRecords) {
+              const storeItem = s.masterItems.find((i: any) => i.itemCode === r.itemCode);
+              s.applyServerStockOut({ ...r, itemId: storeItem ? storeItem.id : r.itemId });
+            }
+          }
+          if (s.stockOutRecords.length === 0 && data.stockOutRecords.length > 0) {
+            useWMSStore.setState({ stockOutRecords: data.stockOutRecords });
           }
         }
+        if (data.auditTrail && data.auditTrail.length > 0) {
+          s.auditTrail.length === 0 && useWMSStore.setState({ auditTrail: data.auditTrail });
+        }
+        if (data.alertEmail) {
+          useWMSStore.setState({ alertEmail: data.alertEmail });
+        }
+        if (data.batchSequence) useWMSStore.setState({ batchSequence: Math.max(s.batchSequence, data.batchSequence) });
+        if (data.grnSequence) useWMSStore.setState({ grnSequence: Math.max(s.grnSequence, data.grnSequence) });
+        if (data.issueSequence) useWMSStore.setState({ issueSequence: Math.max(s.issueSequence, data.issueSequence) });
+        if (data.adjustmentSequence) useWMSStore.setState({ adjustmentSequence: Math.max(s.adjustmentSequence, data.adjustmentSequence) });
       })
       .catch(() => {});
   };
 
   useEffect(() => {
-    syncToServer();
-    const interval = setInterval(syncToServer, 15000);
+    pullFromServer();
+    pushToServer();
+    const interval = setInterval(() => {
+      pullFromServer();
+      pushToServer();
+    }, 15000);
     return () => clearInterval(interval);
-  }, [masterItems, employees, batchLedger, jobs, users]);
+  }, [masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail]);
 
   return null;
 }
