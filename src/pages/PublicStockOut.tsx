@@ -61,15 +61,22 @@ export default function PublicStockOutForm() {
   const empDropdownRef = useRef<HTMLDivElement>(null);
   const empInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  const fetchData = () => {
     fetch('/api/public/stock-data?t=' + Date.now())
       .then((res) => res.json())
       .then((data) => {
         setItems(data.items || []);
         setEmployees(data.employees || []);
         setJobs(data.jobs || []);
+        setError('');
       })
       .catch(() => setError('Failed to load data'));
+  };
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {

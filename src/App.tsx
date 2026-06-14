@@ -151,7 +151,7 @@ function SyncToServer() {
     const interval = setInterval(() => {
       pullFromServer();
       pushToServer();
-    }, 15000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail]);
 

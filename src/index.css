@@ -57,6 +57,9 @@
   .badge-gray {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800;
   }
+  .badge-orange {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800;
+  }
   .table-header {
     @apply bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
   }

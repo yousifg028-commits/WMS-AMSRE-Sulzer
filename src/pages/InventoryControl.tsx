@@ -32,17 +32,19 @@ export default function InventoryControl() {
       const available = totalQty;
       const reserved = 0;
       const batchCount = batches.length;
-      const expiredBatches = batches.filter(b => {
-        if (b.balance <= 0) return false;
+      const activeBatches = batches.filter(b => b.balance > 0);
+      const expiredBatches = activeBatches.filter(b => {
         const dateToCheck = b.expiryDate || b.bbd || '';
+        if (!dateToCheck) return false;
         return getExpiryStatus(dateToCheck) === 'Expired';
       }).length;
-      const nearExpiryBatches = batches.filter(b => {
-        if (b.balance <= 0) return false;
+      const nearExpiryBatches = activeBatches.filter(b => {
         const dateToCheck = b.expiryDate || b.bbd || '';
+        if (!dateToCheck) return false;
         const status = getExpiryStatus(dateToCheck);
         return status === 'Near Expiry' || status === 'Warning';
       }).length;
+      const batchesWithoutDate = activeBatches.filter(b => !b.expiryDate && !b.bbd).length;
       const isLow = totalQty <= item.reorderLevel && totalQty > 0;
       const isOut = totalQty === 0;
       return {
@@ -53,6 +55,7 @@ export default function InventoryControl() {
         batchCount,
         expiredBatches,
         nearExpiryBatches,
+        batchesWithoutDate,
         isLow,
         isOut,
       };
@@ -209,6 +212,7 @@ export default function InventoryControl() {
                 <th className="px-4 py-3 text-center">Batches</th>
                 <th className="px-4 py-3 text-center">Expired</th>
                 <th className="px-4 py-3 text-center">Near Exp</th>
+                <th className="px-4 py-3 text-center">No Date</th>
                 <th className="px-4 py-3 text-center">Status</th>
               </tr>
             </thead>
@@ -227,6 +231,9 @@ export default function InventoryControl() {
                   </td>
                   <td className="table-cell text-center">
                     {item.nearExpiryBatches > 0 ? <span className="badge-yellow">{item.nearExpiryBatches}</span> : <span className="text-gray-400">0</span>}
+                  </td>
+                  <td className="table-cell text-center">
+                    {item.batchesWithoutDate > 0 ? <span className="badge-orange">{item.batchesWithoutDate}</span> : <span className="text-gray-400">0</span>}
                   </td>
                   <td className="table-cell text-center">
                     {item.isOut ? <span className="badge-red">Out of Stock</span>
