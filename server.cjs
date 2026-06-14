@@ -285,7 +285,15 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
 });
 
 app.get('/api/public/stock-data', function(req, res) {
-  res.json({ items: publicItems, employees: publicEmployees, jobs: publicJobs });
+  var items = (persistedData.masterItems || []).filter(function(i) { return i.status === 'Active'; }).map(function(item) {
+    var balance = (persistedData.batchLedger || []).filter(function(b) { return b.itemId === item.id; }).reduce(function(s, b) { return s + b.balance; }, 0);
+    return { id: item.id, itemCode: item.itemCode, itemName: item.itemName, unit: item.unitOfMeasure, trackerGroup: item.trackerGroup || '', availableQty: balance };
+  });
+  var emps = (persistedData.employees || []).filter(function(e) { return e.status === 'Active'; }).map(function(e) {
+    return { id: e.id, employeeName: e.employeeName, department: e.department };
+  });
+  var jobs = (persistedData.jobs || []).filter(function(j) { return j.status === 'Active'; });
+  res.json({ items: items, employees: emps, jobs: jobs });
 });
 
 var extraUsers = persistedData.extraUsers || [];
