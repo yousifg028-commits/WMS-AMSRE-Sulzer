@@ -196,23 +196,7 @@ app.get('/api/email-status', authMiddleware, function(req, res) {
   res.json({ configured: !!emailTransporter, email: alertEmailAddress || '' });
 });
 
-var publicItems = persistedData.publicItems || [
-  { id: '1', itemCode: 'PPE-GLV-001', itemName: 'Nitrile Gloves (L)', unit: 'Box', trackerGroup: 'PPE', availableQty: 200 },
-  { id: '2', itemCode: 'PPE-MSK-002', itemName: 'N95 Respirator Mask', unit: 'Box', trackerGroup: 'PPE', availableQty: 150 },
-  { id: '3', itemCode: 'PPE-EST-003', itemName: 'Safety Glasses', unit: 'Piece', trackerGroup: 'PPE', availableQty: 100 },
-  { id: '4', itemCode: 'PPE-BOT-004', itemName: 'Steel Toe Boots', unit: 'Pair', trackerGroup: 'PPE', availableQty: 50 },
-  { id: '5', itemCode: 'CHE-CLN-005', itemName: 'Industrial Cleaner 5L', unit: 'Drum', trackerGroup: '', availableQty: 40 },
-  { id: '6', itemCode: 'SPR-BLT-006', itemName: 'M8 Hex Bolt M12x50', unit: 'Pack(100)', trackerGroup: '', availableQty: 80 },
-  { id: '7', itemCode: 'PPE-HLM-007', itemName: 'Hard Hat (White)', unit: 'Piece', trackerGroup: 'PPE', availableQty: 75 },
-  { id: '8', itemCode: 'PPE-HNS-008', itemName: 'Hi-Vis Safety Vest', unit: 'Piece', trackerGroup: 'PPE', availableQty: 90 },
-  { id: '9', itemCode: 'LUB-GRS-009', itemName: 'Multi-Purpose Grease', unit: 'Bucket(20L)', trackerGroup: '', availableQty: 30 },
-  { id: '10', itemCode: 'SPR-BRG-010', itemName: 'Ball Bearing 6205', unit: 'Piece', trackerGroup: '', availableQty: 60 },
-  { id: '11', itemCode: 'STA-PEN-001', itemName: 'Blue Ballpoint Pen', unit: 'Pack(50)', trackerGroup: 'Stationery', availableQty: 45 },
-  { id: '12', itemCode: 'STA-PPR-002', itemName: 'A4 Copy Paper (Ream)', unit: 'Ream', trackerGroup: 'Stationery', availableQty: 120 },
-  { id: '13', itemCode: 'STA-TPE-003', itemName: 'Adhesive Tape Roll', unit: 'Piece', trackerGroup: 'Stationery', availableQty: 70 },
-  { id: '14', itemCode: 'QC-FLT-001', itemName: 'Test Filter Kit', unit: 'Kit', trackerGroup: 'QC', availableQty: 25 },
-  { id: '15', itemCode: 'QC-SMP-002', itemName: 'Sample Collection Bags', unit: 'Box(100)', trackerGroup: 'QC', availableQty: 50 },
-];
+var publicItems = persistedData.publicItems || [];
 var publicEmployees = persistedData.publicEmployees || [];
 var publicJobs = persistedData.publicJobs || [];
 var pendingRequests = persistedData.pendingRequests || [];

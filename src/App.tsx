@@ -70,6 +70,12 @@ function SyncToServer() {
         extraUsers: (s as any).extraUsers || [],
         publicEmployees: (s as any).publicEmployees || [],
       }),
+    }).then((res) => {
+      if (res.status === 401) {
+        localStorage.removeItem('wms_token');
+        localStorage.removeItem('wms_user');
+        window.location.reload();
+      }
     }).catch(() => {});
   };
 
@@ -79,7 +85,15 @@ function SyncToServer() {
     fetch('/api/full-sync', {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then((r) => {
+        if (r.status === 401) {
+          localStorage.removeItem('wms_token');
+          localStorage.removeItem('wms_user');
+          window.location.reload();
+          return null;
+        }
+        return r.json();
+      })
       .then((data) => {
         if (!data || data.error) return;
         const s = store.getState();
@@ -150,11 +164,26 @@ export default function App() {
 
   useEffect(() => {
     const saved = localStorage.getItem('wms_user');
-    if (saved) {
+    const token = localStorage.getItem('wms_token');
+    if (saved && token) {
       try {
         const parsed = JSON.parse(saved);
-        setUser(parsed);
-        setCurrentUser({ id: parsed.id, username: parsed.username, email: '', role: parsed.role as any, status: 'Active', createdAt: '' });
+        fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } })
+          .then((r) => {
+            if (!r.ok) {
+              localStorage.removeItem('wms_token');
+              localStorage.removeItem('wms_user');
+              return null;
+            }
+            return r.json();
+          })
+          .then((data) => {
+            if (data) {
+              setUser(parsed);
+              setCurrentUser({ id: parsed.id, username: parsed.username, email: '', role: parsed.role as any, status: 'Active', createdAt: '' });
+            }
+          })
+          .catch(() => { /* keep user logged in if server unreachable */ });
       } catch { /* ignore */ }
     }
   }, []);
