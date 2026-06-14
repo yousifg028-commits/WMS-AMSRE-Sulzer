@@ -152,7 +152,7 @@ export interface Job {
   jobNumber: string;
   jobName: string;
   description: string;
-  status: 'Active' | 'On Hold' | 'Completed' | 'Cancelled';
+  status: 'Active' | 'On Hold' | 'Completed' | 'Cancelled' | 'Archived';
   startDate: string;
   endDate: string;
   createdAt: string;

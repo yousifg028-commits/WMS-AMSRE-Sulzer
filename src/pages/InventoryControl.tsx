@@ -4,9 +4,12 @@ import { useWMSStore } from '../store';
 import { Modal } from '../components/ui/Modal';
 import { format, getExpiryStatus } from '../utils/helpers';
 
+const categories = ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'];
+
 export default function InventoryControl() {
   const { masterItems, batchLedger, stockAdjustments, createStockAdjustment } = useWMSStore();
   const [search, setSearch] = useState('');
+  const [filterCat, setFilterCat] = useState('');
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [showCycleCount, setShowCycleCount] = useState(false);
   const [adjustForm, setAdjustForm] = useState({
@@ -28,8 +31,17 @@ export default function InventoryControl() {
       const available = totalQty;
       const reserved = 0;
       const batchCount = batches.length;
-      const expiredBatches = batches.filter(b => getExpiryStatus(b.expiryDate) === 'Expired' && b.balance > 0).length;
-      const nearExpiryBatches = batches.filter(b => getExpiryStatus(b.expiryDate) === 'Near Expiry' && b.balance > 0).length;
+      const expiredBatches = batches.filter(b => {
+        if (b.balance <= 0) return false;
+        const dateToCheck = b.expiryDate || b.bbd || '';
+        return getExpiryStatus(dateToCheck) === 'Expired';
+      }).length;
+      const nearExpiryBatches = batches.filter(b => {
+        if (b.balance <= 0) return false;
+        const dateToCheck = b.expiryDate || b.bbd || '';
+        const status = getExpiryStatus(dateToCheck);
+        return status === 'Near Expiry' || status === 'Warning';
+      }).length;
       const isLow = totalQty <= item.reorderLevel && totalQty > 0;
       const isOut = totalQty === 0;
       return {
@@ -48,9 +60,11 @@ export default function InventoryControl() {
 
   const filtered = useMemo(() => {
     return inventoryData.filter(item => {
-      return !search || item.itemCode.toLowerCase().includes(search.toLowerCase()) || item.itemName.toLowerCase().includes(search.toLowerCase());
+      const matchSearch = !search || item.itemCode.toLowerCase().includes(search.toLowerCase()) || item.itemName.toLowerCase().includes(search.toLowerCase());
+      const matchCat = !filterCat || item.category === filterCat;
+      return matchSearch && matchCat;
     });
-  }, [inventoryData, search]);
+  }, [inventoryData, search, filterCat]);
 
   const handleAdjust = () => {
     if (!adjustForm.itemId || !adjustForm.batchId || adjustForm.quantityAdjusted <= 0) return;
@@ -161,6 +175,10 @@ export default function InventoryControl() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder="Search items..." value={search} onChange={(e) => setSearch(e.target.value)} className="input-field pl-10" />
           </div>
+          <select value={filterCat} onChange={(e) => setFilterCat(e.target.value)} className="select-field w-40">
+            <option value="">All Categories</option>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
 
         <div className="overflow-x-auto">

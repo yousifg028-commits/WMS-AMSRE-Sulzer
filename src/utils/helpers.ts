@@ -34,7 +34,9 @@ export const formatDateTime = (date: string): string => {
 };
 
 export const daysUntilExpiry = (expiryDate: string): number => {
+  if (!expiryDate) return 9999;
   const expiry = new Date(expiryDate);
+  if (isNaN(expiry.getTime())) return 9999;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   expiry.setHours(0, 0, 0, 0);

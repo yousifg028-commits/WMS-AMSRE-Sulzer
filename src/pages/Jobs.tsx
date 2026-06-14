@@ -1,20 +1,22 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Briefcase, Edit2, Eye } from 'lucide-react';
+import { Plus, Search, Briefcase, Edit2, Eye, Archive, RotateCcw, Trash2, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
 import { Modal } from '../components/ui/Modal';
 import { format } from '../utils/helpers';
 import type { Job } from '../types';
 
-const statusColors: Record<Job['status'], string> = {
+const statusColors: Record<string, string> = {
   'Active': 'bg-green-100 text-green-800',
   'On Hold': 'bg-yellow-100 text-yellow-800',
   'Completed': 'bg-blue-100 text-blue-800',
   'Cancelled': 'bg-red-100 text-red-800',
+  'Archived': 'bg-gray-100 text-gray-600',
 };
 
 export default function Jobs() {
-  const { jobs, addJob, updateJob, stockOutRecords } = useWMSStore();
+  const { jobs, addJob, updateJob, archiveJob, restoreJob, deleteJob, stockOutRecords } = useWMSStore();
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
   const [showCreate, setShowCreate] = useState(false);
   const [editJob, setEditJob] = useState<Job | null>(null);
   const [showDetail, setShowDetail] = useState<string | null>(null);
@@ -29,12 +31,14 @@ export default function Jobs() {
 
   const filtered = useMemo(() => {
     return jobs.filter(j => {
-      return !search ||
+      const matchStatus = activeTab === 'archived' ? j.status === 'Archived' : j.status !== 'Archived';
+      const matchSearch = !search ||
         j.jobNumber.toLowerCase().includes(search.toLowerCase()) ||
         j.jobName.toLowerCase().includes(search.toLowerCase()) ||
         j.description.toLowerCase().includes(search.toLowerCase());
+      return matchStatus && matchSearch;
     });
-  }, [jobs, search]);
+  }, [jobs, search, activeTab]);
 
   const getJobStats = (jobNumber: string) => {
     const records = stockOutRecords.filter(r => r.jobNumber === jobNumber);
@@ -88,6 +92,31 @@ export default function Jobs() {
     setEditJob(job);
   };
 
+  const handleDelete = (job: Job) => {
+    if (window.confirm(`Delete job "${job.jobNumber} - ${job.jobName}"?`)) {
+      deleteJob(job.id);
+    }
+  };
+
+  const handlePrint = (job: Job) => {
+    const stats = getJobStats(job.jobNumber);
+    const records = stockOutRecords.filter(r => r.jobNumber === job.jobNumber);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    printWindow.document.write(`<html><head><title>Job - ${job.jobNumber}</title>
+      <style>body{font-family:Arial,sans-serif;padding:20px;}h1{color:#4338ca;border-bottom:2px solid #4338ca;padding-bottom:10px;}.logo{font-size:12px;color:#666;margin-bottom:5px;}table{width:100%;border-collapse:collapse;margin-top:15px;}th,td{border:1px solid #ddd;padding:8px 12px;text-align:left;}th{background:#f3f4f6;font-weight:bold;width:150px;}</style></head><body>
+      <div class="logo">AMSER - Sulzer</div><h1>Job Details</h1>
+      <table><tr><th>Job Number</th><td>${job.jobNumber}</td></tr><tr><th>Job Name</th><td>${job.jobName}</td></tr>
+      <tr><th>Status</th><td>${job.status}</td></tr><tr><th>Start Date</th><td>${job.startDate || '-'}</td></tr>
+      <tr><th>End Date</th><td>${job.endDate || '-'}</td></tr><tr><th>Description</th><td>${job.description || '-'}</td></tr>
+      <tr><th>Total Issues</th><td>${stats.issues}</td></tr><tr><th>Total Qty</th><td>${stats.totalQty}</td></tr></table>
+      ${records.length > 0 ? '<h3 style="margin-top:20px;">Materials Issued</h3><table><thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Employee</th></tr></thead><tbody>' +
+        records.map(r => `<tr><td>${r.issueDate}</td><td>${r.itemCode} - ${r.itemName}</td><td>${r.quantity}</td><td>${r.employeeName}</td></tr>`).join('') + '</tbody></table>' : ''}
+      <p style="margin-top:20px;font-size:11px;color:#999;">Printed: ${new Date().toLocaleString()}</p>
+      <script>window.onload=function(){window.print();}</script></body></html>`);
+    printWindow.document.close();
+  };
+
   const detailJob = jobs.find(j => j.id === showDetail);
   const detailRecords = detailJob ? stockOutRecords.filter(r => r.jobNumber === detailJob.jobNumber) : [];
 
@@ -111,7 +140,7 @@ export default function Jobs() {
       <div className="grid grid-cols-4 gap-4">
         <div className="stat-card">
           <p className="text-xs font-medium text-gray-500 uppercase">Total Jobs</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{jobs.length}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{jobs.filter(j => j.status !== 'Archived').length}</p>
         </div>
         <div className="stat-card">
           <p className="text-xs font-medium text-gray-500 uppercase">Active</p>
@@ -125,6 +154,11 @@ export default function Jobs() {
           <p className="text-xs font-medium text-gray-500 uppercase">Total Issues</p>
           <p className="text-2xl font-bold text-orange-600 mt-1">{stockOutRecords.filter(r => r.jobNumber).length}</p>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button onClick={() => setActiveTab('active')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'active' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Active Jobs</button>
+        <button onClick={() => setActiveTab('archived')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'archived' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Archived Jobs</button>
       </div>
 
       <div className="card">
@@ -167,11 +201,26 @@ export default function Jobs() {
                     <td className="table-cell">{job.startDate || '-'}</td>
                     <td className="table-cell text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => setShowDetail(job.id)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600">
+                        <button onClick={() => setShowDetail(job.id)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600" title="View">
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button onClick={() => openEdit(job)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600">
+                        <button onClick={() => openEdit(job)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600" title="Edit">
                           <Edit2 className="w-4 h-4" />
+                        </button>
+                        {activeTab === 'active' ? (
+                          <button onClick={() => archiveJob(job.id)} className="p-1.5 hover:bg-orange-50 rounded-lg text-orange-600" title="Archive">
+                            <Archive className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button onClick={() => restoreJob(job.id)} className="p-1.5 hover:bg-yellow-50 rounded-lg text-yellow-600" title="Restore">
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button onClick={() => handleDelete(job)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600" title="Delete">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handlePrint(job)} className="p-1.5 hover:bg-green-50 rounded-lg text-green-600" title="Print">
+                          <Printer className="w-4 h-4" />
                         </button>
                       </div>
                     </td>

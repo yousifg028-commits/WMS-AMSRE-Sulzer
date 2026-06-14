@@ -55,6 +55,9 @@ interface WMSState {
 
   addJob: (job: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateJob: (id: string, updates: Partial<Job>) => void;
+  archiveJob: (id: string) => void;
+  restoreJob: (id: string) => void;
+  deleteJob: (id: string) => void;
 
   addAlert: (alert: Omit<StockAlert, 'id' | 'createdAt'>) => void;
   markAlertRead: (id: string) => void;
@@ -505,6 +508,33 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     const audit = logAudit(state, 'Update Job', 'Jobs', id, old, { ...old, ...updates });
     return {
       jobs: state.jobs.map(j => j.id === id ? { ...j, ...updates, updatedAt: new Date().toISOString() } : j),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  archiveJob: (id) => set((state) => {
+    const old = state.jobs.find(j => j.id === id);
+    const audit = logAudit(state, 'Archive Job', 'Jobs', id, old, { ...old, status: 'Archived' });
+    return {
+      jobs: state.jobs.map(j => j.id === id ? { ...j, status: 'Archived' as const, updatedAt: new Date().toISOString() } : j),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  restoreJob: (id) => set((state) => {
+    const old = state.jobs.find(j => j.id === id);
+    const audit = logAudit(state, 'Restore Job', 'Jobs', id, old, { ...old, status: 'Active' });
+    return {
+      jobs: state.jobs.map(j => j.id === id ? { ...j, status: 'Active' as const, updatedAt: new Date().toISOString() } : j),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  deleteJob: (id) => set((state) => {
+    const old = state.jobs.find(j => j.id === id);
+    const audit = logAudit(state, 'Delete Job', 'Jobs', id, old, null);
+    return {
+      jobs: state.jobs.filter(j => j.id !== id),
       auditTrail: [...state.auditTrail, audit],
     };
   }),
