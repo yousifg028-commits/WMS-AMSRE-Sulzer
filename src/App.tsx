@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
@@ -39,6 +39,7 @@ interface User {
 function SyncToServer() {
   const store = useWMSStore;
   const { masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail } = useWMSStore();
+  const hasPulledRef = useRef(false);
 
   const pushToServer = () => {
     const token = localStorage.getItem('wms_token');
@@ -97,6 +98,31 @@ function SyncToServer() {
       .then((data) => {
         if (!data || data.error) return;
         const s = store.getState();
+        const isFirstPull = !hasPulledRef.current;
+        hasPulledRef.current = true;
+
+        const serverHasData = (data.masterItems || []).length > 0;
+
+        if (isFirstPull && serverHasData) {
+          useWMSStore.setState({
+            masterItems: data.masterItems || [],
+            employees: data.employees || [],
+            stockInRecords: data.stockInRecords || [],
+            batchLedger: data.batchLedger || [],
+            inventoryBalances: data.inventoryBalances || [],
+            jobs: data.jobs || [],
+            stockAdjustments: data.stockAdjustments || [],
+            auditTrail: data.auditTrail || [],
+            stockOutRecords: data.stockOutRecords || [],
+            alertEmail: data.alertEmail || '',
+          });
+          if (data.batchSequence) useWMSStore.setState({ batchSequence: data.batchSequence });
+          if (data.grnSequence) useWMSStore.setState({ grnSequence: data.grnSequence });
+          if (data.issueSequence) useWMSStore.setState({ issueSequence: data.issueSequence });
+          if (data.adjustmentSequence) useWMSStore.setState({ adjustmentSequence: data.adjustmentSequence });
+          return;
+        }
+
         if (data.masterItems && data.masterItems.length > 0) {
           s.masterItems.length === 0 && useWMSStore.setState({ masterItems: data.masterItems });
         }
