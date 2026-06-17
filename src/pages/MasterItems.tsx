@@ -45,6 +45,8 @@ export default function MasterItems() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [showCatDropdown, setShowCatDropdown] = useState(false);
+  const [catSearch, setCatSearch] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const duplicateName = formData.itemName && masterItems.find(i => i.itemName.toLowerCase() === formData.itemName.toLowerCase() && i.id !== editItem?.id);
@@ -82,14 +84,6 @@ export default function MasterItems() {
     }
     if (editItem) { updateItem(editItem.id, formData); } else { addItem(formData); }
     setShowModal(false);
-  };
-
-  const handleCategoryChange = (category: string) => {
-    if (!editItem) {
-      setFormData({ ...formData, category, itemCode: generateItemCode(category, masterItems) });
-    } else {
-      setFormData({ ...formData, category });
-    }
   };
 
   const handleDelete = (item: MasterItem) => {
@@ -475,12 +469,33 @@ export default function MasterItems() {
             <input type="text" value={formData.itemName} onChange={(e) => setFormData({ ...formData, itemName: e.target.value })} className={`input-field ${duplicateName ? 'border-red-500' : ''}`} placeholder="Enter item name" />
             {duplicateName && <p className="text-red-500 text-xs mt-1">This item name already exists ({duplicateName.itemCode})</p>}
           </div>
-          <div>
+          <div className="relative">
             <label className="label-field">Category</label>
-            <select value={formData.category} onChange={(e) => handleCategoryChange(e.target.value)} className="select-field" disabled={!!editItem}>
-              <option value="">Select category</option>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <input
+              type="text"
+              value={showCatDropdown ? catSearch : formData.category}
+              onChange={(e) => { const v = e.target.value; setCatSearch(v); setFormData({ ...formData, category: v }); setShowCatDropdown(true); }}
+              onFocus={() => { setCatSearch(''); setShowCatDropdown(true); }}
+              className="input-field"
+              placeholder="Type or select category"
+              disabled={!!editItem}
+            />
+            {showCatDropdown && !editItem && (
+              <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                {categories.filter(c => !catSearch || c.toLowerCase().includes(catSearch.toLowerCase())).map(c => (
+                  <button key={c} type="button" onClick={() => { setFormData({ ...formData, category: c, itemCode: generateItemCode(c, masterItems) }); setShowCatDropdown(false); setCatSearch(''); }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${formData.category === c ? 'bg-blue-100 font-medium' : ''}`}>
+                    {c}
+                  </button>
+                ))}
+                {catSearch && !categories.includes(catSearch) && (
+                  <button type="button" onClick={() => { addCategory(catSearch); if (!categoryPrefix[catSearch]) categoryPrefix[catSearch] = catSearch.substring(0, 3).toUpperCase(); setFormData({ ...formData, category: catSearch, itemCode: generateItemCode(catSearch, masterItems) }); setShowCatDropdown(false); setCatSearch(''); }}
+                    className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-100 font-medium">
+                    + Add "{catSearch}"
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           <div>
             <label className="label-field">Subcategory (Type)</label>
