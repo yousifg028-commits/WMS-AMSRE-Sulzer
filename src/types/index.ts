@@ -54,6 +54,8 @@ export interface StockInRecord {
   expiryDate: string;
   supplier: string;
   warehouseLocation: string;
+  purchaseOrder: string;
+  referenceNumber: string;
   remarks: string;
   createdBy: string;
   createdAt: string;
@@ -184,6 +186,57 @@ export interface User {
 }
 
 export type UserRole = 'Administrator' | 'Warehouse Manager' | 'Warehouse Supervisor' | 'Storekeeper' | 'Viewer';
+
+export interface ClientMaterial {
+  id: string;
+  code: string;
+  itemName: string;
+  description: string;
+  category: string;
+  unit: string;
+  clientName: string;
+  projectNumber: string;
+  receivedDate: string;
+  expectedReturnDate: string;
+  quantityIn: number;
+  quantityOut: number;
+  balance: number;
+  location: string;
+  status: 'In Stock' | 'Issued' | 'Returned' | 'Expired';
+  issuedTo: string;
+  issuedDate: string;
+  remarks: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QuarantineMaterial {
+  id: string;
+  code: string;
+  itemName: string;
+  description: string;
+  category: string;
+  unit: string;
+  reason: string;
+  source: string;
+  receivedDate: string;
+  quarantineDate: string;
+  releaseDate: string;
+  quantityIn: number;
+  quantityOut: number;
+  balance: number;
+  location: string;
+  status: 'Under Review' | 'Released' | 'Rejected' | 'Returned' | 'Disposed';
+  inspector: string;
+  inspectionResult: string;
+  issuedTo: string;
+  issuedDate: string;
+  remarks: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface Role {
   name: UserRole;

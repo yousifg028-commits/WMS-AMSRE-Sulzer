@@ -226,6 +226,7 @@ app.get('/api/full-sync', authMiddleware, function(req, res) {
   res.json({
     masterItems: persistedData.masterItems || [],
     employees: persistedData.employees || [],
+    categories: persistedData.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'],
     stockInRecords: persistedData.stockInRecords || [],
     stockOutRecords: persistedData.stockOutRecords || [],
     batchLedger: persistedData.batchLedger || [],
@@ -249,6 +250,7 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   var body = req.body;
   persistedData.masterItems = body.masterItems || [];
   persistedData.employees = body.employees || [];
+  persistedData.categories = body.categories || persistedData.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'];
   persistedData.stockInRecords = body.stockInRecords || [];
   persistedData.stockOutRecords = body.stockOutRecords || [];
   persistedData.batchLedger = body.batchLedger || [];

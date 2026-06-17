@@ -30,7 +30,9 @@ export default function Employees() {
 
   const openCreate = () => {
     setEditEmp(null);
-    setFormData(emptyEmp);
+    const nextNum = employees.length + 1;
+    const empId = `EMP-${String(nextNum).padStart(3, '0')}`;
+    setFormData({ ...emptyEmp, employeeId: empId });
     setShowModal(true);
   };
 
@@ -41,7 +43,11 @@ export default function Employees() {
   };
 
   const handleSave = () => {
-    if (!formData.employeeId || !formData.employeeName) return;
+    if (!formData.employeeName) return;
+    if (!formData.employeeId) {
+      const nextNum = employees.length + 1;
+      formData.employeeId = `EMP-${String(nextNum).padStart(3, '0')}`;
+    }
     if (editEmp) {
       updateEmployee(editEmp.id, formData);
     } else {
@@ -146,7 +152,7 @@ export default function Employees() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label-field">Employee ID *</label>
-            <input type="text" value={formData.employeeId} onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })} className="input-field" placeholder="e.g. EMP-007" />
+            <input type="text" value={formData.employeeId} readOnly className="input-field bg-gray-100 cursor-not-allowed" placeholder="Auto-generated" />
           </div>
           <div>
             <label className="label-field">Employee Name *</label>

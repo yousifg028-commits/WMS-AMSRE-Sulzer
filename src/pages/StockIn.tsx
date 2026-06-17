@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Eye, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Eye, Pencil, Trash2, Upload } from 'lucide-react';
 import { useWMSStore } from '../store';
 import { Modal } from '../components/ui/Modal';
 import { format } from 'date-fns';
@@ -20,6 +20,9 @@ export default function StockIn() {
     expiryDate: '',
     supplier: '',
     warehouseLocation: '',
+    purchaseOrder: '',
+    referenceNumber: '',
+    poFileName: '',
     remarks: '',
   });
 
@@ -29,7 +32,7 @@ export default function StockIn() {
 
   const filtered = useMemo(() => {
     return stockInRecords.filter(r => {
-      return !search || r.grnNumber.toLowerCase().includes(search.toLowerCase()) || r.itemName.toLowerCase().includes(search.toLowerCase()) || r.itemCode.toLowerCase().includes(search.toLowerCase());
+      return !search || r.grnNumber.toLowerCase().includes(search.toLowerCase()) || r.itemName.toLowerCase().includes(search.toLowerCase()) || r.itemCode.toLowerCase().includes(search.toLowerCase()) || (r.purchaseOrder && r.purchaseOrder.toLowerCase().includes(search.toLowerCase()));
     });
   }, [stockInRecords, search]);
 
@@ -50,6 +53,8 @@ export default function StockIn() {
       expiryDate: formData.expiryDate,
       supplier: formData.supplier || item.supplier,
       warehouseLocation: formData.warehouseLocation,
+      purchaseOrder: formData.purchaseOrder,
+      referenceNumber: formData.referenceNumber,
       remarks: formData.remarks,
       createdBy: 'admin',
     });
@@ -57,7 +62,7 @@ export default function StockIn() {
     setFormData({
       receiptDate: format(new Date(), 'yyyy-MM-dd'),
       itemId: '', quantity: 0, dom: '', bbd: '', expiryDate: '',
-      supplier: '', warehouseLocation: '', remarks: '',
+      supplier: '', warehouseLocation: '', purchaseOrder: '', referenceNumber: '', poFileName: '', remarks: '',
     });
   };
 
@@ -77,6 +82,8 @@ export default function StockIn() {
       receiptDate: formData.receiptDate,
       supplier: formData.supplier,
       warehouseLocation: formData.warehouseLocation,
+      purchaseOrder: formData.purchaseOrder,
+      referenceNumber: formData.referenceNumber,
       remarks: formData.remarks,
       dom: formData.dom,
       bbd: formData.bbd,
@@ -97,6 +104,9 @@ export default function StockIn() {
       expiryDate: record.expiryDate || '',
       supplier: record.supplier,
       warehouseLocation: record.warehouseLocation,
+      purchaseOrder: record.purchaseOrder || '',
+      referenceNumber: record.referenceNumber || '',
+      poFileName: (record as any).poFileName || '',
       remarks: record.remarks || '',
     });
     handleEdit(record);
@@ -135,7 +145,7 @@ export default function StockIn() {
         <div className="flex items-center gap-3 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search by GRN, item code, or name..." value={search} onChange={(e) => setSearch(e.target.value)} className="input-field pl-10" />
+            <input type="text" placeholder="Search by GRN, item code, name, or PO number..." value={search} onChange={(e) => setSearch(e.target.value)} className="input-field pl-10" />
           </div>
         </div>
 
@@ -150,6 +160,8 @@ export default function StockIn() {
                 <th className="px-4 py-3 text-left">Qty</th>
                 <th className="px-4 py-3 text-left">Batch ID</th>
                 <th className="px-4 py-3 text-left">Supplier</th>
+                <th className="px-4 py-3 text-left">PO Number</th>
+                <th className="px-4 py-3 text-left">Reference Number</th>
                 <th className="px-4 py-3 text-center">Actions</th>
               </tr>
             </thead>
@@ -163,6 +175,8 @@ export default function StockIn() {
                   <td className="table-cell font-medium">{record.quantity} {record.unit}</td>
                   <td className="table-cell font-mono text-xs">{record.batchId}</td>
                   <td className="table-cell">{record.supplier}</td>
+                  <td className="table-cell">{record.purchaseOrder || '-'}</td>
+                  <td className="table-cell">{record.referenceNumber || '-'}</td>
                   <td className="table-cell text-center">
                     <div className="flex items-center justify-center gap-1">
                       <button onClick={() => setShowDetail(record.id)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600" title="View">
@@ -223,6 +237,30 @@ export default function StockIn() {
             <label className="label-field">Warehouse Location</label>
             <input type="text" value={formData.warehouseLocation} onChange={(e) => setFormData({ ...formData, warehouseLocation: e.target.value })} className="input-field" placeholder="e.g. A-01-01" />
           </div>
+          <div>
+            <label className="label-field">PO Number</label>
+            <input type="text" value={formData.purchaseOrder} onChange={(e) => setFormData({ ...formData, purchaseOrder: e.target.value })} className="input-field" placeholder="Purchase order number" />
+          </div>
+          <div>
+            <label className="label-field">Reference Number</label>
+            <input type="text" value={formData.referenceNumber} onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })} className="input-field" placeholder="Reference number" />
+          </div>
+          <div className="col-span-2">
+            <label className="label-field">PO File</label>
+            <div className="flex items-center gap-3">
+              <label className="input-field flex items-center gap-2 cursor-pointer">
+                <Upload className="w-4 h-4 text-gray-400" />
+                <span className="text-sm text-gray-500">{formData.poFileName || 'Choose file (PDF, JPG, PNG)'}</span>
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setFormData({ ...formData, poFileName: file.name });
+                }} />
+              </label>
+              {formData.poFileName && (
+                <button type="button" onClick={() => setFormData({ ...formData, poFileName: '' })} className="text-xs text-red-500 hover:text-red-700">Remove</button>
+              )}
+            </div>
+          </div>
           <div className="col-span-2">
             <label className="label-field">Remarks</label>
             <textarea value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} className="input-field" rows={2} />
@@ -268,6 +306,30 @@ export default function StockIn() {
             <label className="label-field">Location</label>
             <input type="text" value={formData.warehouseLocation} onChange={(e) => setFormData({ ...formData, warehouseLocation: e.target.value })} className="input-field" />
           </div>
+          <div>
+            <label className="label-field">PO Number</label>
+            <input type="text" value={formData.purchaseOrder} onChange={(e) => setFormData({ ...formData, purchaseOrder: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="label-field">Reference Number</label>
+            <input type="text" value={formData.referenceNumber} onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })} className="input-field" />
+          </div>
+          <div className="col-span-2">
+            <label className="label-field">PO File</label>
+            <div className="flex items-center gap-3">
+              <label className="input-field flex items-center gap-2 cursor-pointer">
+                <Upload className="w-4 h-4 text-gray-400" />
+                <span className="text-sm text-gray-500">{formData.poFileName || 'Choose file (PDF, JPG, PNG)'}</span>
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setFormData({ ...formData, poFileName: file.name });
+                }} />
+              </label>
+              {formData.poFileName && (
+                <button type="button" onClick={() => setFormData({ ...formData, poFileName: '' })} className="text-xs text-red-500 hover:text-red-700">Remove</button>
+              )}
+            </div>
+          </div>
           <div className="col-span-2">
             <label className="label-field">Remarks</label>
             <textarea value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} className="input-field" rows={2} />
@@ -293,6 +355,8 @@ export default function StockIn() {
               'BBD': detailRecord.bbd ? format(new Date(detailRecord.bbd), 'dd MMM yyyy') : '-',
               'Expiry Date': detailRecord.expiryDate ? format(new Date(detailRecord.expiryDate), 'dd MMM yyyy') : '-',
               'Supplier': detailRecord.supplier,
+              'PO Number': (detailRecord as any).purchaseOrder || '-',
+              'Reference Number': (detailRecord as any).referenceNumber || '-',
               'Location': detailRecord.warehouseLocation,
               'Remarks': detailRecord.remarks || '-',
             }).map(([label, value]) => (

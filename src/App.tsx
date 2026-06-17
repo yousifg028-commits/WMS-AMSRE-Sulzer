@@ -39,6 +39,7 @@ interface User {
 function SyncToServer() {
   const store = useWMSStore;
   const { masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail } = useWMSStore();
+  const categories = useWMSStore((s) => (s as any).categories || []);
   const hasPulledRef = useRef(false);
 
   const pushToServer = () => {
@@ -55,6 +56,7 @@ function SyncToServer() {
       body: JSON.stringify({
         masterItems: itemsWithQty,
         employees: s.employees,
+        categories: (s as any).categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'],
         stockInRecords: s.stockInRecords,
         stockOutRecords: s.stockOutRecords,
         batchLedger: s.batchLedger,
@@ -107,6 +109,7 @@ function SyncToServer() {
           useWMSStore.setState({
             masterItems: data.masterItems || [],
             employees: data.employees || [],
+            categories: data.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'],
             stockInRecords: data.stockInRecords || [],
             batchLedger: data.batchLedger || [],
             inventoryBalances: data.inventoryBalances || [],
@@ -179,7 +182,7 @@ function SyncToServer() {
       pushToServer();
     }, 5000);
     return () => clearInterval(interval);
-  }, [masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail]);
+  }, [masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail, categories]);
 
   return null;
 }
