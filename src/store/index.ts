@@ -4,7 +4,7 @@ import type {
   MasterItem, Employee, StockInRecord, BatchLedgerEntry,
   StockOutRecord, InventoryBalance, StockAdjustment,
   ExpiryAlert, AuditTrailEntry, User, Permission, Job, StockAlert,
-  ClientMaterial, QuarantineMaterial,
+  ClientMaterial, QuarantineMaterial, JobMaterial,
 } from '../types';
 import { generateId, generateBatchId, generateGRN, generateIssueNumber, generateAdjustmentNumber } from '../utils/helpers';
 import { allocateFEFO } from '../utils/fefo';
@@ -27,6 +27,7 @@ interface WMSState {
   alertEmail: string;
   quarantineMaterials: QuarantineMaterial[];
   clientMaterials: ClientMaterial[];
+  jobMaterials: JobMaterial[];
   categories: string[];
 
   batchSequence: number;
@@ -83,6 +84,11 @@ interface WMSState {
   deleteClientMaterial: (id: string) => void;
   issueClientMaterial: (id: string, qty: number, issuedTo: string, issuedDate: string, source: string, jobNumber: string, remarks: string) => void;
   returnClientMaterial: (id: string, qty: number) => void;
+
+  addJobMaterial: (item: Omit<JobMaterial, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateJobMaterial: (id: string, updates: Partial<JobMaterial>) => void;
+  deleteJobMaterial: (id: string) => void;
+  issueJobMaterial: (id: string, qty: number, issuedTo: string, issuedDate: string, remarks: string) => string | null;
 
   getStockInByItem: (itemId: string) => StockInRecord[];
   getBatchesByItem: (itemId: string) => BatchLedgerEntry[];
@@ -228,6 +234,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   alertEmail: 'yousifg028@gmail.com',
   quarantineMaterials: [],
   clientMaterials: [],
+  jobMaterials: [],
   categories: ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'],
   batchSequence: 9,
   grnSequence: 9,
@@ -586,9 +593,25 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     };
   }),
 
-  issueQuarantineMaterial: (id, qty, issuedTo, issuedDate, source, jobNumber, remarks) => set((state) => {
+  issueQuarantineMaterial: (id, qty, issuedTo, issuedDate, source, jobNumber, remarks) => {
+    const state = get();
     const item = state.quarantineMaterials.find(q => q.id === id);
-    if (!item) return state;
+    if (!item) return;
+
+    state.createStockOut({
+      issueDate: issuedDate,
+      employeeId: '',
+      employeeName: issuedTo,
+      department: '',
+      itemId: '',
+      itemCode: item.code,
+      itemName: item.itemName,
+      quantity: qty,
+      jobNumber: jobNumber || '',
+      remarks: remarks || `Quarantine Issue - ${item.code}`,
+      createdBy: state.currentUser.username,
+    });
+
     const newQtyOut = item.quantityOut + qty;
     const newBalance = item.quantityIn - newQtyOut;
     const updates = {
@@ -598,12 +621,14 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
       issuedDate,
       remarks,
     };
-    const audit = logAudit(state, 'Issue from Quarantine', 'Quarantine', id, item, { ...item, ...updates, issueSource: source, jobNumber });
-    return {
-      quarantineMaterials: state.quarantineMaterials.map(q => q.id === id ? { ...q, ...updates, updatedAt: new Date().toISOString() } : q),
-      auditTrail: [...state.auditTrail, audit],
-    };
-  }),
+    set((state) => {
+      const audit = logAudit(state, 'Issue from Quarantine', 'Quarantine', id, item, { ...item, ...updates, issueSource: source, jobNumber });
+      return {
+        quarantineMaterials: state.quarantineMaterials.map(q => q.id === id ? { ...q, ...updates, updatedAt: new Date().toISOString() } : q),
+        auditTrail: [...state.auditTrail, audit],
+      };
+    });
+  },
 
   releaseQuarantineMaterial: (id, status, inspectionResult, releaseDate, issuedTo, remarks) => set((state) => {
     const item = state.quarantineMaterials.find(q => q.id === id);
@@ -689,6 +714,70 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     };
   }),
 
+  addJobMaterial: (item) => set((state) => {
+    const now = new Date().toISOString();
+    const newItem: JobMaterial = { ...item, id: generateId(), createdAt: now, updatedAt: now };
+    const audit = logAudit(state, 'Add Job Material', 'Job Materials', newItem.id, null, newItem);
+    return { jobMaterials: [...state.jobMaterials, newItem], auditTrail: [...state.auditTrail, audit] };
+  }),
+
+  updateJobMaterial: (id, updates) => set((state) => {
+    const old = state.jobMaterials.find(j => j.id === id);
+    const audit = logAudit(state, 'Update Job Material', 'Job Materials', id, old, { ...old, ...updates });
+    return {
+      jobMaterials: state.jobMaterials.map(j => j.id === id ? { ...j, ...updates, updatedAt: new Date().toISOString() } : j),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  deleteJobMaterial: (id) => set((state) => {
+    const old = state.jobMaterials.find(j => j.id === id);
+    const audit = logAudit(state, 'Delete Job Material', 'Job Materials', id, old, null);
+    return {
+      jobMaterials: state.jobMaterials.filter(j => j.id !== id),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  issueJobMaterial: (id, qty, issuedTo, issuedDate, remarks) => {
+    const state = get();
+    const item = state.jobMaterials.find(j => j.id === id);
+    if (!item) return null;
+
+    const masterItem = state.masterItems.find(m => m.itemCode === item.category || m.itemName === item.itemName);
+    const stockOutResult = state.createStockOut({
+      issueDate: issuedDate,
+      employeeId: '',
+      employeeName: issuedTo,
+      department: '',
+      itemId: masterItem ? masterItem.id : '',
+      itemCode: masterItem ? masterItem.itemCode : item.category,
+      itemName: item.itemName,
+      quantity: qty,
+      jobNumber: item.jobNumber,
+      remarks: remarks || `Job Material Issue - ${item.code}`,
+      createdBy: state.currentUser.username,
+    });
+
+    const updates = {
+      quantity: Math.max(0, item.quantity - qty),
+      status: (item.quantity - qty <= 0 ? 'Issued' : 'Pending') as JobMaterial['status'],
+      issuedTo,
+      issuedDate,
+      remarks,
+    };
+
+    set((state) => {
+      const audit = logAudit(state, 'Issue Job Material', 'Job Materials', id, item, { ...item, ...updates });
+      return {
+        jobMaterials: state.jobMaterials.map(j => j.id === id ? { ...j, ...updates, updatedAt: new Date().toISOString() } : j),
+        auditTrail: [...state.auditTrail, audit],
+      };
+    });
+
+    return stockOutResult;
+  },
+
   addAlert: (alert) => set((state) => ({
     stockAlerts: [{ ...alert, id: generateId(), createdAt: new Date().toISOString() }, ...state.stockAlerts],
   })),
@@ -732,6 +821,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     stockAlerts: state.stockAlerts,
     alertEmail: state.alertEmail,
     quarantineMaterials: state.quarantineMaterials,
+    jobMaterials: state.jobMaterials,
     categories: state.categories,
     batchSequence: state.batchSequence,
     grnSequence: state.grnSequence,

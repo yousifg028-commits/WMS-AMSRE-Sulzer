@@ -22,6 +22,7 @@ import JobMaterialTracker from './pages/JobMaterialTracker';
 import QCTracker from './pages/QCTracker';
 import InventoryHistory from './pages/InventoryHistory';
 import Jobs from './pages/Jobs';
+import JobMaterials from './pages/JobMaterials';
 import QCForm from './pages/QCForm';
 import QRCodePage from './pages/QRCodePage';
 import FormRequestsSheet from './pages/PendingRequests';
@@ -65,6 +66,7 @@ function SyncToServer() {
         users: s.users,
         stockAdjustments: s.stockAdjustments,
         auditTrail: s.auditTrail,
+        jobMaterials: s.jobMaterials || [],
         alertEmail: s.alertEmail,
         batchSequence: s.batchSequence,
         grnSequence: s.grnSequence,
@@ -117,6 +119,7 @@ function SyncToServer() {
             stockAdjustments: data.stockAdjustments || [],
             auditTrail: data.auditTrail || [],
             stockOutRecords: data.stockOutRecords || [],
+            jobMaterials: data.jobMaterials || [],
             alertEmail: data.alertEmail || '',
           });
           if (data.batchSequence) useWMSStore.setState({ batchSequence: data.batchSequence });
@@ -255,6 +258,7 @@ export default function App() {
           <Route path="/inventory" element={<InventoryControl />} />
           <Route path="/archived-items" element={<ArchivedItems />} />
           <Route path="/jobs" element={<Jobs />} />
+          <Route path="/job-materials" element={<JobMaterials />} />
           <Route path="/ppe-tracker" element={<PPETracker />} />
           <Route path="/stationery-tracker" element={<StationeryTracker />} />
           <Route path="/job-material-tracker" element={<JobMaterialTracker />} />
