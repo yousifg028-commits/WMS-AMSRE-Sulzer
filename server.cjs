@@ -62,10 +62,13 @@ function syncToGoogleSheet() {
     sheetsData['Jobs'] = { headers: jobHeaders, rows: persistedData.jobs || [] };
 
     var payload = JSON.stringify({ action: 'saveAll', sheets: sheetsData });
-    fetch(GOOGLE_SHEET_URL, {
+    var url = GOOGLE_SHEET_URL;
+    if (!url.endsWith('/exec') && !url.endsWith('/dev')) url = url + '/exec';
+    fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: payload,
+      redirect: 'follow',
     }).then(function() { console.log('Synced to Google Sheet'); })
       .catch(function(e) { console.error('Google Sheet sync error:', e.message); });
   } catch(e) { console.error('Google Sheet sync error:', e.message); }
@@ -82,9 +85,23 @@ function syncToGoogleSheetDebounced() {
 function pullFromGoogleSheet(callback) {
   if (!GOOGLE_SHEET_URL) { callback(false); return; }
   console.log('Pulling data from Google Sheet...');
-  fetch(GOOGLE_SHEET_URL + '?action=getAll')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+  var url = GOOGLE_SHEET_URL;
+  if (!url.endsWith('/exec') && !url.endsWith('/dev')) url = url + '/exec';
+  console.log('Google Sheet URL: ' + url);
+  fetch(url + '?action=getAll', { redirect: 'follow' })
+    .then(function(r) { return r.text(); })
+    .then(function(text) {
+      try {
+        var data = JSON.parse(text);
+      } catch(e) {
+        console.error('Google Sheet pull FAILED: Response is HTML, not JSON.');
+        console.error('FIX: 1) Open the URL in your browser and click Allow');
+        console.error('2) Make sure URL ends with /exec');
+        console.error('3) Make sure deployment is set to "Anyone" access');
+        console.error('First 150 chars: ' + text.substring(0, 150));
+        callback(false);
+        return;
+      }
       if (data.error) { console.error('Google Sheet pull error:', data.error); callback(false); return; }
       var changed = false;
       if (data.MasterItems && data.MasterItems.length > 0) {
