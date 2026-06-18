@@ -12,7 +12,7 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'wms-data.json');
-const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_URL || '';
+const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_URL || 'https://script.google.com/macros/s/AKfycbx7puscv5jMys7WmVLh4EOYSNRof4yOSoTuq7bhgnDqtR7e0X_VJqDZyglgj8NGUjWF8A/exec';
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
