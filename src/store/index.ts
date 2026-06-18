@@ -213,7 +213,7 @@ function logAudit(state: WMSState, action: string, module: string, recordId: str
     afterValue: after ? JSON.stringify(after, null, 2) : '',
     performedBy: state.currentUser.username,
     performedAt: new Date().toISOString(),
-    ipAddress: '192.168.3.112',
+    ipAddress: window?.location?.hostname || 'local',
   };
 }
 
@@ -822,6 +822,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     alertEmail: state.alertEmail,
     quarantineMaterials: state.quarantineMaterials,
     jobMaterials: state.jobMaterials,
+    clientMaterials: state.clientMaterials,
     categories: state.categories,
     batchSequence: state.batchSequence,
     grnSequence: state.grnSequence,
