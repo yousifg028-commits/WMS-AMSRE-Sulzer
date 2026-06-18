@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
@@ -42,7 +42,6 @@ function SyncToServer() {
   const store = useWMSStore;
   const { masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail } = useWMSStore();
   const categories = useWMSStore((s) => (s as any).categories || []);
-  const hasPulledRef = useRef(false);
 
   const pushToServer = () => {
     const token = localStorage.getItem('wms_token');
@@ -102,90 +101,59 @@ function SyncToServer() {
       })
       .then((data) => {
         if (!data || data.error) return;
-        const s = store.getState();
-        const isFirstPull = !hasPulledRef.current;
-        hasPulledRef.current = true;
 
-        const serverHasData = (data.masterItems || []).length > 0;
+        const serverMasterItems = data.masterItems || [];
+        const serverEmployees = data.employees || [];
+        const serverStockIn = data.stockInRecords || [];
+        const serverStockOut = data.stockOutRecords || [];
+        const serverBatchLedger = data.batchLedger || [];
+        const serverInvBalances = data.inventoryBalances || [];
+        const serverJobs = data.jobs || [];
+        const serverStockAdj = data.stockAdjustments || [];
+        const serverAudit = data.auditTrail || [];
+        const serverJobMaterials = data.jobMaterials || [];
+        const serverQuarantine = data.quarantineMaterials || [];
+        const serverClientMaterials = data.clientMaterials || [];
 
-        if (isFirstPull && serverHasData) {
+        const hasServerData = serverMasterItems.length > 0 || serverEmployees.length > 0;
+
+        if (hasServerData) {
           useWMSStore.setState({
-            masterItems: data.masterItems || [],
-            employees: data.employees || [],
+            masterItems: serverMasterItems,
+            employees: serverEmployees,
             categories: data.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'],
-            stockInRecords: data.stockInRecords || [],
-            batchLedger: data.batchLedger || [],
-            inventoryBalances: data.inventoryBalances || [],
-            jobs: data.jobs || [],
-            stockAdjustments: data.stockAdjustments || [],
-            auditTrail: data.auditTrail || [],
-            stockOutRecords: data.stockOutRecords || [],
-            jobMaterials: data.jobMaterials || [],
+            stockInRecords: serverStockIn,
+            batchLedger: serverBatchLedger,
+            inventoryBalances: serverInvBalances,
+            jobs: serverJobs,
+            stockAdjustments: serverStockAdj,
+            auditTrail: serverAudit,
+            jobMaterials: serverJobMaterials,
+            quarantineMaterials: serverQuarantine,
+            clientMaterials: serverClientMaterials,
             alertEmail: data.alertEmail || '',
           });
           if (data.batchSequence) useWMSStore.setState({ batchSequence: data.batchSequence });
           if (data.grnSequence) useWMSStore.setState({ grnSequence: data.grnSequence });
           if (data.issueSequence) useWMSStore.setState({ issueSequence: data.issueSequence });
           if (data.adjustmentSequence) useWMSStore.setState({ adjustmentSequence: data.adjustmentSequence });
-          return;
-        }
 
-        if (data.masterItems && data.masterItems.length > 0) {
-          s.masterItems.length === 0 && useWMSStore.setState({ masterItems: data.masterItems });
-        }
-        if (data.employees && data.employees.length > 0) {
-          s.employees.length === 0 && useWMSStore.setState({ employees: data.employees });
-        }
-        if (data.stockInRecords && data.stockInRecords.length > 0) {
-          s.stockInRecords.length === 0 && useWMSStore.setState({ stockInRecords: data.stockInRecords });
-        }
-        if (data.batchLedger && data.batchLedger.length > 0) {
-          const localBatchIds = new Set(s.batchLedger.map((b: any) => b.batchId));
-          const newBatches = data.batchLedger.filter((b: any) => !localBatchIds.has(b.batchId));
-          const updatedBatches = data.batchLedger.filter((b: any) => localBatchIds.has(b.batchId));
-          if (newBatches.length > 0 || updatedBatches.length > 0) {
-            const merged = [...s.batchLedger.filter((b: any) => !updatedBatches.find((ub: any) => ub.batchId === b.batchId)), ...newBatches, ...updatedBatches];
-            useWMSStore.setState({ batchLedger: merged });
+          if (serverStockOut.length > 0) {
+            useWMSStore.setState({ stockOutRecords: serverStockOut });
           }
-        }
-        if (data.inventoryBalances && data.inventoryBalances.length > 0) {
-          const localItemIds = new Set(s.inventoryBalances.map((b: any) => b.itemId));
-          const newBalances = data.inventoryBalances.filter((b: any) => !localItemIds.has(b.itemId));
-          const updatedBalances = data.inventoryBalances.filter((b: any) => localItemIds.has(b.itemId));
-          if (newBalances.length > 0 || updatedBalances.length > 0) {
-            const merged = [...s.inventoryBalances.filter((b: any) => !updatedBalances.find((ub: any) => ub.itemId === b.itemId)), ...newBalances, ...updatedBalances];
-            useWMSStore.setState({ inventoryBalances: merged });
-          }
-        }
-        if (data.jobs && data.jobs.length > 0) {
-          s.jobs.length === 0 && useWMSStore.setState({ jobs: data.jobs });
-        }
-        if (data.stockAdjustments && data.stockAdjustments.length > 0) {
-          s.stockAdjustments.length === 0 && useWMSStore.setState({ stockAdjustments: data.stockAdjustments });
-        }
-        if (data.stockOutRecords) {
-          const existingIssueNums = new Set(s.stockOutRecords.map((r: any) => r.issueNumber));
-          const newRecords = data.stockOutRecords.filter((r: any) => !existingIssueNums.has(r.issueNumber));
-          if (newRecords.length > 0) {
-            for (const r of newRecords) {
-              const storeItem = s.masterItems.find((i: any) => i.itemCode === r.itemCode);
-              s.applyServerStockOut({ ...r, itemId: storeItem ? storeItem.id : r.itemId });
+        } else {
+          const s = store.getState();
+          if (serverStockOut.length > 0) {
+            const existingIssueNums = new Set(s.stockOutRecords.map((r: any) => r.issueNumber));
+            const newRecords = serverStockOut.filter((r: any) => !existingIssueNums.has(r.issueNumber));
+            if (newRecords.length > 0) {
+              for (const r of newRecords) {
+                const storeItem = s.masterItems.find((i: any) => i.itemCode === r.itemCode);
+                s.applyServerStockOut({ ...r, itemId: storeItem ? storeItem.id : r.itemId });
+              }
             }
           }
-          if (s.stockOutRecords.length === 0 && data.stockOutRecords.length > 0) {
-            useWMSStore.setState({ stockOutRecords: data.stockOutRecords });
-          }
         }
-        if (data.auditTrail && data.auditTrail.length > 0) {
-          s.auditTrail.length === 0 && useWMSStore.setState({ auditTrail: data.auditTrail });
-        }
-        if (data.alertEmail) {
-          useWMSStore.setState({ alertEmail: data.alertEmail });
-        }
-        if (data.batchSequence) useWMSStore.setState({ batchSequence: Math.max(s.batchSequence, data.batchSequence) });
-        if (data.grnSequence) useWMSStore.setState({ grnSequence: Math.max(s.grnSequence, data.grnSequence) });
-        if (data.issueSequence) useWMSStore.setState({ issueSequence: Math.max(s.issueSequence, data.issueSequence) });
-        if (data.adjustmentSequence) useWMSStore.setState({ adjustmentSequence: Math.max(s.adjustmentSequence, data.adjustmentSequence) });
       })
       .catch(() => {});
   };
