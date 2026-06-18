@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Search, History, ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
+import { Search, History, ArrowDown, ArrowUp, RefreshCw, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
-import { format } from '../utils/helpers';
+import { format, printTable } from '../utils/helpers';
 
 export default function InventoryHistory() {
   const { stockInRecords, stockOutRecords, stockAdjustments } = useWMSStore();
@@ -63,16 +63,30 @@ export default function InventoryHistory() {
     return { total: allTransactions.length, stockIn, stockOut, adj };
   }, [allTransactions]);
 
+  const handlePrint = () => {
+    const headers = ['Type', 'Date', 'Reference', 'Item', 'Qty', 'Batch', 'Details'];
+    const rows = allTransactions.map(txn => [
+      txn.type, format(new Date(txn.date), 'dd MMM yyyy'), txn.reference,
+      `${txn.itemCode} - ${txn.itemName}`, txn.quantity, txn.batchId, txn.details,
+    ]);
+    printTable('Inventory History', headers, rows);
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-          <History className="w-5 h-5 text-indigo-600" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+            <History className="w-5 h-5 text-indigo-600" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Inventory History</h1>
+            <p className="text-sm text-gray-500">Complete log of all inventory movements</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory History</h1>
-          <p className="text-sm text-gray-500">Complete log of all inventory movements</p>
-        </div>
+        <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+          <Printer className="w-4 h-4" /> Print
+        </button>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

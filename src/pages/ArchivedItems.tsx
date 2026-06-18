@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Search, RotateCcw, Archive } from 'lucide-react';
+import { Search, RotateCcw, Archive, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
-import { format } from '../utils/helpers';
+import { format, printTable } from '../utils/helpers';
 
 export default function ArchivedItems() {
   const { masterItems, restoreItem, batchLedger } = useWMSStore();
@@ -17,11 +17,22 @@ export default function ArchivedItems() {
 
   const getBalance = (itemId: string) => batchLedger.filter(b => b.itemId === itemId).reduce((s, b) => s + b.balance, 0);
 
+  const handlePrint = () => {
+    const headers = ['Item Code', 'Item Name', 'Category', 'Location', 'Last Balance', 'Archived Date'];
+    const rows = archived.map(item => [item.itemCode, item.itemName, item.category, item.location || '-', getBalance(item.id), format(new Date(item.updatedAt), 'dd MMM yyyy')]);
+    printTable('Archived Items', headers, rows);
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Archived Items</h1>
-        <p className="text-sm text-gray-500 mt-1">Items that have been removed from active inventory</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Archived Items</h1>
+          <p className="text-sm text-gray-500 mt-1">Items that have been removed from active inventory</p>
+        </div>
+        <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+          <Printer className="w-4 h-4" /> Print
+        </button>
       </div>
 
       <div className="stat-card">

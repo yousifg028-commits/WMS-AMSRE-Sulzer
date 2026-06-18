@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Search, Shield, Eye } from 'lucide-react';
+import { Search, Shield, Eye, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
-import { format } from '../utils/helpers';
+import { format, printTable } from '../utils/helpers';
 
 export default function PPETracker() {
   const { stockOutRecords, masterItems } = useWMSStore();
@@ -32,16 +32,30 @@ export default function PPETracker() {
 
   const detailRecord = stockOutRecords.find(r => r.id === showDetail);
 
+  const handlePrint = () => {
+    const headers = ['Date', 'Employee', 'Department', 'Item Code', 'Item Name', 'Qty', 'Batch ID', 'Job #'];
+    const rows = ppeRecords.map(r => [
+      format(new Date(r.issueDate), 'dd MMM yyyy'), r.employeeName, r.department,
+      r.itemCode, r.itemName, r.quantity, r.batchId, r.jobNumber || '-',
+    ]);
+    printTable('PPE Tracker', headers, rows);
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-          <Shield className="w-5 h-5 text-red-600" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+            <Shield className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">PPE Tracker</h1>
+            <p className="text-sm text-gray-500">Track all Personal Protective Equipment issues</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">PPE Tracker</h1>
-          <p className="text-sm text-gray-500">Track all Personal Protective Equipment issues</p>
-        </div>
+        <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+          <Printer className="w-4 h-4" /> Print
+        </button>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

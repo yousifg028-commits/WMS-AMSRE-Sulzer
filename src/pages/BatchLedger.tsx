@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
-import { format as fmt, getExpiryStatus, daysUntilExpiry, getExpiryBadgeClass } from '../utils/helpers';
+import { format as fmt, getExpiryStatus, daysUntilExpiry, getExpiryBadgeClass, printTable } from '../utils/helpers';
 
 export default function BatchLedger() {
   const { batchLedger, masterItems } = useWMSStore();
@@ -35,11 +35,22 @@ export default function BatchLedger() {
     return { active, nearExpiry, expired, depleted, totalBalance };
   }, [enriched]);
 
+  const handlePrint = () => {
+    const headers = ['Batch ID', 'Item Code', 'Item Name', 'DOM', 'BBD', 'Expiry', 'Qty In', 'Qty Out', 'Balance', 'Status'];
+    const rows = filtered.map(b => [b.batchId, b.itemCode, b.itemName, b.dom ? fmt(new Date(b.dom), 'dd MMM yy') : '-', b.bbd ? fmt(new Date(b.bbd), 'dd MMM yy') : '-', b.expiryDate ? fmt(new Date(b.expiryDate), 'dd MMM yy') : '-', b.quantityIn, b.quantityOut, b.balance, b.status]);
+    printTable('Batch Ledger', headers, rows);
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Batch Ledger</h1>
-        <p className="text-sm text-gray-500 mt-1">Track every batch separately</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Batch Ledger</h1>
+          <p className="text-sm text-gray-500 mt-1">Track every batch separately</p>
+        </div>
+        <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+          <Printer className="w-4 h-4" /> Print
+        </button>
       </div>
 
       <div className="grid grid-cols-5 gap-4">

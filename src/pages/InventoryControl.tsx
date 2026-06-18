@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Calculator } from 'lucide-react';
+import { Plus, Search, Calculator, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
 import { Modal } from '../components/ui/Modal';
-import { format, getExpiryStatus } from '../utils/helpers';
+import { format, getExpiryStatus, printTable } from '../utils/helpers';
 
 const categories = ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'];
 
@@ -70,6 +70,16 @@ export default function InventoryControl() {
     });
   }, [inventoryData, search, filterCat]);
 
+  const handlePrint = () => {
+    const headers = ['Item Code', 'Item Name', 'Category', 'Total Qty', 'Available', 'Reorder Lvl', 'Batches', 'Expired', 'Near Exp', 'No Date', 'Status'];
+    const rows = filtered.map(item => [
+      item.itemCode, item.itemName, item.category, item.totalQty, item.available,
+      item.reorderLevel, item.batchCount, item.expiredBatches, item.nearExpiryBatches,
+      item.batchesWithoutDate, item.isOut ? 'Out of Stock' : item.isLow ? 'Low Stock' : 'OK',
+    ]);
+    printTable('Inventory Control', headers, rows);
+  };
+
   const handleAdjust = () => {
     if (!adjustForm.itemId || !adjustForm.batchId || adjustForm.quantityAdjusted <= 0) return;
     const batch = batchLedger.find(b => b.batchId === adjustForm.batchId);
@@ -113,6 +123,9 @@ export default function InventoryControl() {
           <p className="text-sm text-gray-500 mt-1">Current balances, adjustments, and cycle counts</p>
         </div>
         <div className="flex gap-3">
+          <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+            <Printer className="w-4 h-4" /> Print
+          </button>
           <button onClick={() => setShowCycleCount(!showCycleCount)} className="btn-secondary flex items-center gap-2">
             <Calculator className="w-4 h-4" /> Cycle Count
           </button>

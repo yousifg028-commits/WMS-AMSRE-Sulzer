@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
-import { Search, CheckCircle, Eye, ClipboardCheck } from 'lucide-react';
+import { Search, CheckCircle, Eye, ClipboardCheck, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useWMSStore } from '../store';
-import { format } from '../utils/helpers';
+import { format, printTable } from '../utils/helpers';
 
 export default function QCTracker() {
   const { stockInRecords, batchLedger, masterItems } = useWMSStore();
@@ -33,6 +33,16 @@ export default function QCTracker() {
   const detailRecord = stockInRecords.find(r => r.id === showDetail);
   const detailBatch = detailRecord ? batchLedger.find(b => b.batchId === detailRecord.batchId) : null;
 
+  const handlePrint = () => {
+    const headers = ['GRN #', 'Date', 'Item', 'Qty', 'Batch', 'Supplier', 'Expiry'];
+    const rows = qcRecords.map(r => [
+      r.grnNumber, format(new Date(r.receiptDate), 'dd MMM yyyy'),
+      `${r.itemCode} - ${r.itemName}`, `${r.quantity} ${r.unit}`, r.batchId,
+      r.supplier, r.expiryDate ? format(new Date(r.expiryDate), 'dd MMM yy') : '-',
+    ]);
+    printTable('QC Tracker', headers, rows);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -45,9 +55,14 @@ export default function QCTracker() {
             <p className="text-sm text-gray-500">Quality Control - Track received materials inspection</p>
           </div>
         </div>
-        <button onClick={() => navigate('/qc-form')} className="btn-primary flex items-center gap-2">
-          <ClipboardCheck className="w-4 h-4" /> QC Form
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+          <button onClick={() => navigate('/qc-form')} className="btn-primary flex items-center gap-2">
+            <ClipboardCheck className="w-4 h-4" /> QC Form
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

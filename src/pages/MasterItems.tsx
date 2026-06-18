@@ -478,18 +478,20 @@ export default function MasterItems() {
               onFocus={() => { setCatSearch(''); setShowCatDropdown(true); }}
               className="input-field"
               placeholder="Type or select category"
-              disabled={!!editItem}
             />
-            {showCatDropdown && !editItem && (
+            {showCatDropdown && (
               <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                 {categories.filter(c => !catSearch || c.toLowerCase().includes(catSearch.toLowerCase())).map(c => (
-                  <button key={c} type="button" onClick={() => { setFormData({ ...formData, category: c, itemCode: generateItemCode(c, masterItems) }); setShowCatDropdown(false); setCatSearch(''); }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${formData.category === c ? 'bg-blue-100 font-medium' : ''}`}>
+                  <button key={c} type="button" onClick={() => {
+                    if (editItem) { setFormData({ ...formData, category: c }); }
+                    else { setFormData({ ...formData, category: c, itemCode: generateItemCode(c, masterItems) }); }
+                    setShowCatDropdown(false); setCatSearch('');
+                  }} className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${formData.category === c ? 'bg-blue-100 font-medium' : ''}`}>
                     {c}
                   </button>
                 ))}
                 {catSearch && !categories.includes(catSearch) && (
-                  <button type="button" onClick={() => { addCategory(catSearch); if (!categoryPrefix[catSearch]) categoryPrefix[catSearch] = catSearch.substring(0, 3).toUpperCase(); setFormData({ ...formData, category: catSearch, itemCode: generateItemCode(catSearch, masterItems) }); setShowCatDropdown(false); setCatSearch(''); }}
+                  <button type="button" onClick={() => { addCategory(catSearch); if (!categoryPrefix[catSearch]) categoryPrefix[catSearch] = catSearch.substring(0, 3).toUpperCase(); setFormData({ ...formData, category: catSearch, ...(editItem ? {} : { itemCode: generateItemCode(catSearch, masterItems) }) }); setShowCatDropdown(false); setCatSearch(''); }}
                     className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-100 font-medium">
                     + Add "{catSearch}"
                   </button>

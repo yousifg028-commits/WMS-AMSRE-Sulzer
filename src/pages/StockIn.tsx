@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Eye, Pencil, Trash2, Upload } from 'lucide-react';
+import { Plus, Search, Eye, Pencil, Trash2, Upload, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
+import { printTable } from '../utils/helpers';
 import { Modal } from '../components/ui/Modal';
 import { format } from 'date-fns';
 import type { StockInRecord } from '../types';
@@ -35,6 +36,12 @@ export default function StockIn() {
       return !search || r.grnNumber.toLowerCase().includes(search.toLowerCase()) || r.itemName.toLowerCase().includes(search.toLowerCase()) || r.itemCode.toLowerCase().includes(search.toLowerCase()) || (r.purchaseOrder && r.purchaseOrder.toLowerCase().includes(search.toLowerCase()));
     });
   }, [stockInRecords, search]);
+
+  const handlePrint = () => {
+    const headers = ['GRN Number', 'Date', 'Item Code', 'Item Name', 'Qty', 'Batch ID', 'Supplier', 'PO Number', 'Reference'];
+    const rows = filtered.map(r => [r.grnNumber, r.receiptDate, r.itemCode, r.itemName, `${r.quantity} ${r.unit}`, r.batchId, r.supplier, r.purchaseOrder || '-', r.referenceNumber || '-']);
+    printTable('Stock In Records', headers, rows);
+  };
 
   const handleSave = () => {
     if (!formData.itemId || formData.quantity <= 0) return;
@@ -121,9 +128,14 @@ export default function StockIn() {
           <h1 className="text-2xl font-bold text-gray-900">Stock In</h1>
           <p className="text-sm text-gray-500 mt-1">Receive inventory into warehouse</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> New Receipt
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> New Receipt
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4">

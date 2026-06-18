@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Plus, Edit2, Search } from 'lucide-react';
+import { Plus, Edit2, Search, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
+import { printTable } from '../utils/helpers';
 import type { Employee } from '../types';
 import { Modal } from '../components/ui/Modal';
 
@@ -27,6 +28,12 @@ export default function Employees() {
   }, [employees, search, filterDept]);
 
   const getEmpIssueCount = (empId: string) => stockOutRecords.filter(r => r.employeeId === empId).length;
+
+  const handlePrint = () => {
+    const headers = ['Emp ID', 'Name', 'Department', 'Position', 'Location', 'Hire Date', 'Status'];
+    const rows = filtered.map(emp => [emp.employeeId, emp.employeeName, emp.department, emp.position, emp.location, emp.hireDate, emp.status]);
+    printTable('Employee Management', headers, rows);
+  };
 
   const openCreate = () => {
     setEditEmp(null);
@@ -63,9 +70,14 @@ export default function Employees() {
           <h1 className="text-2xl font-bold text-gray-900">Employee Management</h1>
           <p className="text-sm text-gray-500 mt-1">Manage warehouse employees</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Add Employee
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Add Employee
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

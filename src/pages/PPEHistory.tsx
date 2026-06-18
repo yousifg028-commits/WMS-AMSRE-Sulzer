@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
-import { User, Clock, Package, AlertTriangle } from 'lucide-react';
+import { User, Clock, Package, AlertTriangle, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
 import { format } from 'date-fns';
+import { printTable } from '../utils/helpers';
 
 export default function PPEHistory() {
   const { employees, stockOutRecords, masterItems } = useWMSStore();
@@ -41,11 +42,27 @@ export default function PPEHistory() {
     return 'Quarterly';
   }, [ppeHistory]);
 
+  const handlePrint = () => {
+    const headers = ['Issue Date', 'Item', 'Quantity', 'Batch ID', 'Job Number', 'Remarks'];
+    const rows = ppeHistory.map(record => [
+      format(new Date(record.issueDate), 'dd MMM yyyy'), record.itemName, record.quantity,
+      record.batchId, record.jobNumber || '-', record.remarks || '-',
+    ]);
+    printTable(`PPE History - ${selectedEmployee?.employeeName || ''}`, headers, rows);
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Employee PPE Issue History</h1>
-        <p className="text-sm text-gray-500 mt-1">Track all PPE issued per employee</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Employee PPE Issue History</h1>
+          <p className="text-sm text-gray-500 mt-1">Track all PPE issued per employee</p>
+        </div>
+        {selectedEmployee && (
+          <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+        )}
       </div>
 
       <div className="card">
