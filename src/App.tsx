@@ -140,10 +140,22 @@ function SyncToServer() {
           s.stockInRecords.length === 0 && useWMSStore.setState({ stockInRecords: data.stockInRecords });
         }
         if (data.batchLedger && data.batchLedger.length > 0) {
-          s.batchLedger.length === 0 && useWMSStore.setState({ batchLedger: data.batchLedger });
+          const localBatchIds = new Set(s.batchLedger.map((b: any) => b.batchId));
+          const newBatches = data.batchLedger.filter((b: any) => !localBatchIds.has(b.batchId));
+          const updatedBatches = data.batchLedger.filter((b: any) => localBatchIds.has(b.batchId));
+          if (newBatches.length > 0 || updatedBatches.length > 0) {
+            const merged = [...s.batchLedger.filter((b: any) => !updatedBatches.find((ub: any) => ub.batchId === b.batchId)), ...newBatches, ...updatedBatches];
+            useWMSStore.setState({ batchLedger: merged });
+          }
         }
         if (data.inventoryBalances && data.inventoryBalances.length > 0) {
-          s.inventoryBalances.length === 0 && useWMSStore.setState({ inventoryBalances: data.inventoryBalances });
+          const localItemIds = new Set(s.inventoryBalances.map((b: any) => b.itemId));
+          const newBalances = data.inventoryBalances.filter((b: any) => !localItemIds.has(b.itemId));
+          const updatedBalances = data.inventoryBalances.filter((b: any) => localItemIds.has(b.itemId));
+          if (newBalances.length > 0 || updatedBalances.length > 0) {
+            const merged = [...s.inventoryBalances.filter((b: any) => !updatedBalances.find((ub: any) => ub.itemId === b.itemId)), ...newBalances, ...updatedBalances];
+            useWMSStore.setState({ inventoryBalances: merged });
+          }
         }
         if (data.jobs && data.jobs.length > 0) {
           s.jobs.length === 0 && useWMSStore.setState({ jobs: data.jobs });

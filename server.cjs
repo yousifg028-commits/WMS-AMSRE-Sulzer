@@ -252,7 +252,14 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   persistedData.employees = body.employees || [];
   persistedData.categories = body.categories || persistedData.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'];
   persistedData.stockInRecords = body.stockInRecords || [];
-  persistedData.stockOutRecords = body.stockOutRecords || [];
+
+  var clientSO = body.stockOutRecords || [];
+  var serverSO = persistedData.stockOutRecords || [];
+  var soMap = {};
+  for (var i = 0; i < serverSO.length; i++) { soMap[serverSO[i].issueNumber] = serverSO[i]; }
+  for (var i = 0; i < clientSO.length; i++) { if (!soMap[clientSO[i].issueNumber]) soMap[clientSO[i].issueNumber] = clientSO[i]; }
+  persistedData.stockOutRecords = Object.values(soMap);
+
   persistedData.batchLedger = body.batchLedger || [];
   persistedData.inventoryBalances = body.inventoryBalances || [];
   persistedData.jobs = body.jobs || [];
@@ -450,6 +457,28 @@ app.post('/api/pending-requests/:id/approve', authMiddleware, function(req, res)
     requestNumber: approvedReq.requestNumber,
   };
   serverStockOutRecords.push(stockOutRecord);
+
+  if (!persistedData.stockOutRecords) persistedData.stockOutRecords = [];
+  persistedData.stockOutRecords.push(stockOutRecord);
+
+  var itemBatches = (persistedData.batchLedger || []).filter(function(b) { return b.itemId === approvedReq.itemId && b.balance > 0; });
+  var remaining = approvedReq.quantity;
+  for (var bi = 0; bi < itemBatches.length && remaining > 0; bi++) {
+    var batch = itemBatches[bi];
+    var deduct = Math.min(batch.balance, remaining);
+    batch.balance -= deduct;
+    batch.quantityOut += deduct;
+    batch.updatedAt = now;
+    remaining -= deduct;
+  }
+
+  var invBalance = (persistedData.inventoryBalances || []).find(function(b) { return b.itemId === approvedReq.itemId; });
+  if (invBalance) {
+    invBalance.totalQuantity = Math.max(0, invBalance.totalQuantity - approvedReq.quantity);
+    invBalance.availableQuantity = Math.max(0, invBalance.availableQuantity - approvedReq.quantity);
+    invBalance.lastUpdated = now;
+  }
+
   saveData();
   res.json({ ok: true, request: pendingRequests[idx], stockOut: stockOutRecord });
 });
