@@ -696,6 +696,12 @@ app.listen(PORT, '0.0.0.0', function() {
       if (changed) console.log('  Initial data loaded from Google Sheet');
       else console.log('  No data on Google Sheet, using local data');
     });
+    setInterval(function() {
+      pullFromGoogleSheet(function(changed) {
+        if (changed) console.log('  Periodic pull: data updated from Google Sheet');
+      });
+    }, 60000);
+    console.log('  Periodic pull: every 60 seconds');
   } else {
     console.log('  Google Sheet sync: DISABLED (set GOOGLE_SHEET_URL env)');
   }
