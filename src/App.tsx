@@ -23,6 +23,7 @@ import QCTracker from './pages/QCTracker';
 import InventoryHistory from './pages/InventoryHistory';
 import Jobs from './pages/Jobs';
 import JobMaterials from './pages/JobMaterials';
+import QuarantineMaterials from './pages/QuarantineMaterials';
 import QCForm from './pages/QCForm';
 import QRCodePage from './pages/QRCodePage';
 import FormRequestsSheet from './pages/PendingRequests';
@@ -259,6 +260,7 @@ export default function App() {
           <Route path="/archived-items" element={<ArchivedItems />} />
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/job-materials" element={<JobMaterials />} />
+          <Route path="/quarantine-materials" element={<QuarantineMaterials />} />
           <Route path="/ppe-tracker" element={<PPETracker />} />
           <Route path="/stationery-tracker" element={<StationeryTracker />} />
           <Route path="/job-material-tracker" element={<JobMaterialTracker />} />

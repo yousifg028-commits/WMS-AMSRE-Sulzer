@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Eye, Pencil, Trash2, Shield, CheckCircle, Printer } from 'lucide-react';
+import { Plus, Search, Eye, Pencil, Trash2, Shield, Upload, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
 import { Modal } from '../components/ui/Modal';
 import { format, printTable } from '../utils/helpers';
@@ -7,10 +7,7 @@ import type { QuarantineMaterial } from '../types';
 
 const CATEGORIES = ['Chemical', 'Equipment', 'Consumable', 'PPE', 'QC Material', 'Other'];
 const UNITS = ['Box', 'Piece', 'Kg', 'Liter', 'Meter', 'Set', 'Kit', 'Other'];
-const SOURCES = ['Stock In', 'Form Request', 'Client Return', 'Other'];
-const ISSUE_SOURCES = ['Stock Out', 'Form Request'];
 const STATUS_OPTIONS: QuarantineMaterial['status'][] = ['Under Review', 'Released', 'Rejected', 'Returned', 'Disposed'];
-const RELEASE_ACTIONS: QuarantineMaterial['status'][] = ['Released', 'Rejected', 'Returned', 'Disposed'];
 
 function generateCode(existing: QuarantineMaterial[]): string {
   const max = existing.reduce((m, r) => {
@@ -31,7 +28,7 @@ function getStatusBadge(status: string) {
   }
 }
 
-export default function QuarantineMaterialPage() {
+export default function QuarantineMaterialsPage() {
   const {
     quarantineMaterials,
     addQuarantineMaterial,
@@ -54,13 +51,9 @@ export default function QuarantineMaterialPage() {
   const [formData, setFormData] = useState({
     code: '',
     itemName: '',
-    description: '',
     category: 'Other',
     unit: 'Piece',
     reason: '',
-    source: 'Stock In',
-    receivedDate: format(new Date(), 'yyyy-MM-dd'),
-    quarantineDate: format(new Date(), 'yyyy-MM-dd'),
     quantityIn: 0,
     location: '',
     inspector: '',
@@ -71,7 +64,6 @@ export default function QuarantineMaterialPage() {
     quantity: 0,
     issuedTo: '',
     issueDate: format(new Date(), 'yyyy-MM-dd'),
-    source: 'Stock Out',
     jobNumber: '',
     remarks: '',
   });
@@ -108,13 +100,9 @@ export default function QuarantineMaterialPage() {
     setFormData({
       code: generateCode(quarantineMaterials),
       itemName: '',
-      description: '',
       category: 'Other',
       unit: 'Piece',
       reason: '',
-      source: 'Stock In',
-      receivedDate: format(new Date(), 'yyyy-MM-dd'),
-      quarantineDate: format(new Date(), 'yyyy-MM-dd'),
       quantityIn: 0,
       location: '',
       inspector: '',
@@ -128,13 +116,9 @@ export default function QuarantineMaterialPage() {
     setFormData({
       code: record.code,
       itemName: record.itemName,
-      description: record.description,
       category: record.category,
       unit: record.unit,
       reason: record.reason,
-      source: record.source,
-      receivedDate: record.receivedDate,
-      quarantineDate: record.quarantineDate,
       quantityIn: record.quantityIn,
       location: record.location,
       inspector: record.inspector,
@@ -149,7 +133,6 @@ export default function QuarantineMaterialPage() {
       quantity: 0,
       issuedTo: '',
       issueDate: format(new Date(), 'yyyy-MM-dd'),
-      source: 'Stock Out',
       jobNumber: '',
       remarks: '',
     });
@@ -174,13 +157,9 @@ export default function QuarantineMaterialPage() {
     if (editingRecord) {
       updateQuarantineMaterial(editingRecord.id, {
         itemName: formData.itemName,
-        description: formData.description,
         category: formData.category,
         unit: formData.unit,
         reason: formData.reason,
-        source: formData.source,
-        receivedDate: formData.receivedDate,
-        quarantineDate: formData.quarantineDate,
         quantityIn: formData.quantityIn,
         location: formData.location,
         inspector: formData.inspector,
@@ -190,13 +169,13 @@ export default function QuarantineMaterialPage() {
       addQuarantineMaterial({
         code: formData.code,
         itemName: formData.itemName,
-        description: formData.description,
+        description: '',
         category: formData.category,
         unit: formData.unit,
         reason: formData.reason,
-        source: formData.source,
-        receivedDate: formData.receivedDate,
-        quarantineDate: formData.quarantineDate,
+        source: 'Stock In',
+        receivedDate: format(new Date(), 'yyyy-MM-dd'),
+        quarantineDate: format(new Date(), 'yyyy-MM-dd'),
         releaseDate: '',
         quantityIn: formData.quantityIn,
         quantityOut: 0,
@@ -217,14 +196,14 @@ export default function QuarantineMaterialPage() {
 
   const handleIssue = () => {
     if (!issuingRecord || issueData.quantity <= 0 || !issueData.issuedTo) return;
-    if (issueData.quantity > issuingRecord.balance) return;
+    if (issueData.quantity > (issuingRecord.balance || issuingRecord.quantityIn - issuingRecord.quantityOut)) return;
 
     issueQuarantineMaterial(
       issuingRecord.id,
       issueData.quantity,
       issueData.issuedTo,
       issueData.issueDate,
-      issueData.source,
+      'Stock Out',
       issueData.jobNumber,
       issueData.remarks,
     );
@@ -256,12 +235,13 @@ export default function QuarantineMaterialPage() {
   const handlePrint = () => {
     printTable(
       'Quarantine Materials',
-      ['Code', 'Item Name', 'Reason', 'Qty In', 'Qty Out', 'Balance', 'Inspector', 'Status'],
-      filtered.map(r => [r.code, r.itemName, r.reason, `${r.quantityIn} ${r.unit}`, `${r.quantityOut} ${r.unit}`, `${r.balance} ${r.unit}`, r.inspector || '-', r.status])
+      ['Code', 'Item Name', 'Category', 'Reason', 'Qty In', 'Qty Out', 'Balance', 'Status'],
+      filtered.map(r => [r.code, r.itemName, r.category, r.reason, `${r.quantityIn} ${r.unit}`, `${r.quantityOut} ${r.unit}`, `${r.balance || (r.quantityIn - r.quantityOut)} ${r.unit}`, r.status])
     );
   };
 
   const detailRecord = quarantineMaterials.find(r => r.id === showDetail);
+  const availableBalance = issuingRecord ? (issuingRecord.balance || issuingRecord.quantityIn - issuingRecord.quantityOut) : 0;
 
   return (
     <div className="space-y-6">
@@ -272,7 +252,7 @@ export default function QuarantineMaterialPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Quarantine Materials</h1>
-            <p className="text-sm text-gray-500">Manage items under quarantine and review</p>
+            <p className="text-sm text-gray-500">Add & manage quarantined and expired materials - Issue registers in Stock Out</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -280,7 +260,7 @@ export default function QuarantineMaterialPage() {
             <Printer className="w-4 h-4" /> Print
           </button>
           <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" /> Add Quarantine Item
+            <Plus className="w-4 h-4" /> Add Quarantine Material
           </button>
         </div>
       </div>
@@ -310,7 +290,7 @@ export default function QuarantineMaterialPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by code, item, reason, or inspector..."
+              placeholder="Search by code, item, reason..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="input-field pl-10"
@@ -334,53 +314,56 @@ export default function QuarantineMaterialPage() {
               <tr className="table-header">
                 <th className="px-4 py-3 text-left">Code</th>
                 <th className="px-4 py-3 text-left">Item Name</th>
+                <th className="px-4 py-3 text-left">Category</th>
                 <th className="px-4 py-3 text-left">Reason</th>
                 <th className="px-4 py-3 text-right">Qty In</th>
                 <th className="px-4 py-3 text-right">Qty Out</th>
                 <th className="px-4 py-3 text-right">Balance</th>
-                <th className="px-4 py-3 text-left">Inspector</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtered.map(record => (
-                <tr key={record.id} className="hover:bg-gray-50">
-                  <td className="table-cell font-medium text-blue-600">{record.code}</td>
-                  <td className="table-cell">{record.itemName}</td>
-                  <td className="table-cell text-sm text-gray-600 max-w-[200px] truncate" title={record.reason}>{record.reason}</td>
-                  <td className="table-cell text-right">{record.quantityIn} {record.unit}</td>
-                  <td className="table-cell text-right">{record.quantityOut} {record.unit}</td>
-                  <td className="table-cell text-right font-bold">{record.balance} {record.unit}</td>
-                  <td className="table-cell">{record.inspector || '-'}</td>
-                  <td className="table-cell">
-                    <span className={`${getStatusBadge(record.status)} inline-block`}>{record.status}</span>
-                  </td>
-                  <td className="table-cell text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <button onClick={() => setShowDetail(record.id)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600" title="View">
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => openEditModal(record)} className="p-1.5 hover:bg-amber-50 rounded-lg text-amber-600" title="Edit">
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      {record.status === 'Under Review' && record.balance > 0 && (
-                        <>
-                          <button onClick={() => openIssueModal(record)} className="p-1.5 hover:bg-emerald-50 rounded-lg text-emerald-600" title="Issue from Quarantine">
-                            <CheckCircle className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => openReleaseModal(record)} className="p-1.5 hover:bg-purple-50 rounded-lg text-purple-600" title="Release / Reject">
-                            <Shield className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-                      <button onClick={() => handleDelete(record)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600" title="Delete">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(record => {
+                const bal = record.balance || (record.quantityIn - record.quantityOut);
+                return (
+                  <tr key={record.id} className="hover:bg-gray-50">
+                    <td className="table-cell font-medium text-blue-600">{record.code}</td>
+                    <td className="table-cell">{record.itemName}</td>
+                    <td className="table-cell">{record.category}</td>
+                    <td className="table-cell text-sm text-gray-600 max-w-[200px] truncate" title={record.reason}>{record.reason}</td>
+                    <td className="table-cell text-right">{record.quantityIn} {record.unit}</td>
+                    <td className="table-cell text-right">{record.quantityOut} {record.unit}</td>
+                    <td className="table-cell text-right font-bold">{bal} {record.unit}</td>
+                    <td className="table-cell">
+                      <span className={`${getStatusBadge(record.status)} inline-block`}>{record.status}</span>
+                    </td>
+                    <td className="table-cell text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button onClick={() => setShowDetail(record.id)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600" title="View">
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => openEditModal(record)} className="p-1.5 hover:bg-amber-50 rounded-lg text-amber-600" title="Edit">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        {record.status === 'Under Review' && bal > 0 && (
+                          <>
+                            <button onClick={() => openIssueModal(record)} className="p-1.5 hover:bg-emerald-50 rounded-lg text-emerald-600" title="Issue (Stock Out)">
+                              <Upload className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => openReleaseModal(record)} className="p-1.5 hover:bg-purple-50 rounded-lg text-purple-600" title="Release / Reject">
+                              <Shield className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                        <button onClick={() => handleDelete(record)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600" title="Delete">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-4 py-8 text-center text-gray-500">No quarantine materials found</td>
@@ -392,21 +375,17 @@ export default function QuarantineMaterialPage() {
         <div className="mt-4 text-sm text-gray-500">Showing {filtered.length} of {quarantineMaterials.length} records</div>
       </div>
 
+      {/* Add/Edit Modal */}
       <Modal
         isOpen={showModal}
         onClose={() => { setShowModal(false); setEditingRecord(null); }}
-        title={editingRecord ? `Edit Quarantine Item - ${editingRecord.code}` : 'New Quarantine Item'}
-        maxWidth="max-w-3xl"
+        title={editingRecord ? `Edit - ${editingRecord.code}` : 'New Quarantine Material'}
+        maxWidth="max-w-2xl"
       >
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label-field">Code</label>
-            <input
-              type="text"
-              value={formData.code}
-              disabled
-              className="input-field bg-gray-50"
-            />
+            <input type="text" value={formData.code} disabled className="input-field bg-gray-50" />
           </div>
           <div>
             <label className="label-field">Item Name *</label>
@@ -418,16 +397,6 @@ export default function QuarantineMaterialPage() {
               placeholder="Enter item name"
             />
           </div>
-          <div className="col-span-2">
-            <label className="label-field">Description</label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="input-field"
-              rows={2}
-              placeholder="Item description"
-            />
-          </div>
           <div>
             <label className="label-field">Category</label>
             <select
@@ -435,9 +404,7 @@ export default function QuarantineMaterialPage() {
               onChange={(e) => setFormData({ ...formData, category: e.target.value })}
               className="select-field"
             >
-              {CATEGORIES.map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div>
@@ -447,9 +414,7 @@ export default function QuarantineMaterialPage() {
               onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
               className="select-field"
             >
-              {UNITS.map(u => (
-                <option key={u} value={u}>{u}</option>
-              ))}
+              {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
           </div>
           <div className="col-span-2">
@@ -459,41 +424,11 @@ export default function QuarantineMaterialPage() {
               onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
               className="input-field"
               rows={2}
-              placeholder="Describe why this item is quarantined..."
+              placeholder="Why is this item quarantined?"
             />
           </div>
           <div>
-            <label className="label-field">Source</label>
-            <select
-              value={formData.source}
-              onChange={(e) => setFormData({ ...formData, source: e.target.value })}
-              className="select-field"
-            >
-              {SOURCES.map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label-field">Received Date *</label>
-            <input
-              type="date"
-              value={formData.receivedDate}
-              onChange={(e) => setFormData({ ...formData, receivedDate: e.target.value })}
-              className="input-field"
-            />
-          </div>
-          <div>
-            <label className="label-field">Quarantine Date</label>
-            <input
-              type="date"
-              value={formData.quarantineDate}
-              onChange={(e) => setFormData({ ...formData, quarantineDate: e.target.value })}
-              className="input-field"
-            />
-          </div>
-          <div>
-            <label className="label-field">Quantity In *</label>
+            <label className="label-field">Quantity *</label>
             <input
               type="number"
               min="1"
@@ -513,7 +448,7 @@ export default function QuarantineMaterialPage() {
             />
           </div>
           <div>
-            <label className="label-field">Inspector Name</label>
+            <label className="label-field">Inspector</label>
             <input
               type="text"
               value={formData.inspector}
@@ -544,10 +479,11 @@ export default function QuarantineMaterialPage() {
         </div>
       </Modal>
 
+      {/* Issue Modal */}
       <Modal
         isOpen={showIssueModal}
         onClose={() => { setShowIssueModal(false); setIssuingRecord(null); }}
-        title={`Issue from Quarantine - ${issuingRecord?.code || ''}`}
+        title={`Issue to Stock Out - ${issuingRecord?.code || ''}`}
         maxWidth="max-w-lg"
       >
         {issuingRecord && (
@@ -555,7 +491,7 @@ export default function QuarantineMaterialPage() {
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-sm text-gray-600">
                 <span className="font-medium">Item:</span> {issuingRecord.itemName} |
-                <span className="font-medium ml-2">Available:</span> {issuingRecord.balance} {issuingRecord.unit}
+                <span className="font-medium ml-2">Available:</span> {availableBalance} {issuingRecord.unit}
               </p>
             </div>
             <div>
@@ -563,13 +499,13 @@ export default function QuarantineMaterialPage() {
               <input
                 type="number"
                 min="1"
-                max={issuingRecord.balance}
+                max={availableBalance}
                 value={issueData.quantity || ''}
                 onChange={(e) => setIssueData({ ...issueData, quantity: +e.target.value })}
                 className="input-field"
               />
-              {issueData.quantity > issuingRecord.balance && (
-                <p className="text-xs text-red-500 mt-1">Cannot exceed available balance of {issuingRecord.balance}</p>
+              {issueData.quantity > availableBalance && (
+                <p className="text-xs text-red-500 mt-1">Cannot exceed available balance of {availableBalance}</p>
               )}
             </div>
             <div>
@@ -590,18 +526,6 @@ export default function QuarantineMaterialPage() {
                 onChange={(e) => setIssueData({ ...issueData, issueDate: e.target.value })}
                 className="input-field"
               />
-            </div>
-            <div>
-              <label className="label-field">Source</label>
-              <select
-                value={issueData.source}
-                onChange={(e) => setIssueData({ ...issueData, source: e.target.value })}
-                className="select-field"
-              >
-                {ISSUE_SOURCES.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
             </div>
             <div>
               <label className="label-field">Job Number</label>
@@ -629,13 +553,14 @@ export default function QuarantineMaterialPage() {
           <button
             onClick={handleIssue}
             className="btn-primary"
-            disabled={!issuingRecord || issueData.quantity <= 0 || !issueData.issuedTo || issueData.quantity > (issuingRecord?.balance || 0)}
+            disabled={!issuingRecord || issueData.quantity <= 0 || !issueData.issuedTo || issueData.quantity > availableBalance}
           >
-            Issue
+            Issue (Stock Out)
           </button>
         </div>
       </Modal>
 
+      {/* Release Modal */}
       <Modal
         isOpen={showReleaseModal}
         onClose={() => { setShowReleaseModal(false); setReleasingRecord(null); }}
@@ -647,7 +572,7 @@ export default function QuarantineMaterialPage() {
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-sm text-gray-600">
                 <span className="font-medium">Item:</span> {releasingRecord.itemName} |
-                <span className="font-medium ml-2">Balance:</span> {releasingRecord.balance} {releasingRecord.unit}
+                <span className="font-medium ml-2">Balance:</span> {releasingRecord.balance || (releasingRecord.quantityIn - releasingRecord.quantityOut)} {releasingRecord.unit}
               </p>
             </div>
             <div>
@@ -657,7 +582,7 @@ export default function QuarantineMaterialPage() {
                 onChange={(e) => setReleaseData({ ...releaseData, action: e.target.value as QuarantineMaterial['status'] })}
                 className="select-field"
               >
-                {RELEASE_ACTIONS.map(a => (
+                {['Released', 'Rejected', 'Returned', 'Disposed'].map(a => (
                   <option key={a} value={a}>{a}</option>
                 ))}
               </select>
@@ -669,7 +594,7 @@ export default function QuarantineMaterialPage() {
                 onChange={(e) => setReleaseData({ ...releaseData, inspectionResult: e.target.value })}
                 className="input-field"
                 rows={3}
-                placeholder="Describe the inspection result and findings..."
+                placeholder="Describe the inspection result..."
               />
             </div>
             <div>
@@ -716,29 +641,23 @@ export default function QuarantineMaterialPage() {
         </div>
       </Modal>
 
+      {/* Detail Modal */}
       <Modal isOpen={!!showDetail} onClose={() => setShowDetail(null)} title="Quarantine Material Details">
         {detailRecord && (
           <div className="space-y-3">
             {Object.entries({
               'Code': detailRecord.code,
               'Item Name': detailRecord.itemName,
-              'Description': detailRecord.description || '-',
               'Category': detailRecord.category,
               'Unit': detailRecord.unit,
-              'Reason for Quarantine': detailRecord.reason,
-              'Source': detailRecord.source,
-              'Received Date': format(new Date(detailRecord.receivedDate), 'dd MMM yyyy'),
-              'Quarantine Date': detailRecord.quarantineDate ? format(new Date(detailRecord.quarantineDate), 'dd MMM yyyy') : '-',
+              'Reason': detailRecord.reason,
               'Quantity In': `${detailRecord.quantityIn} ${detailRecord.unit}`,
               'Quantity Out': `${detailRecord.quantityOut} ${detailRecord.unit}`,
-              'Balance': `${detailRecord.balance} ${detailRecord.unit}`,
+              'Balance': `${detailRecord.balance || (detailRecord.quantityIn - detailRecord.quantityOut)} ${detailRecord.unit}`,
               'Location': detailRecord.location || '-',
               'Inspector': detailRecord.inspector || '-',
-              'Inspection Result': detailRecord.inspectionResult || '-',
               'Status': detailRecord.status,
-              'Release Date': detailRecord.releaseDate ? format(new Date(detailRecord.releaseDate), 'dd MMM yyyy') : '-',
               'Issued To': detailRecord.issuedTo || '-',
-              'Issued Date': detailRecord.issuedDate ? format(new Date(detailRecord.issuedDate), 'dd MMM yyyy') : '-',
               'Remarks': detailRecord.remarks || '-',
             }).map(([label, value]) => (
               <div key={label} className="flex justify-between py-2 border-b border-gray-100">

@@ -23,6 +23,7 @@ const navItems = [
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
   { to: '/job-materials', label: 'Job Materials', icon: Boxes },
   { to: '/ppe-history', label: 'PPE Issue History', icon: TruckIcon },
+  { to: '/quarantine-materials', label: 'Quarantine Materials', icon: Shield },
   { to: '/expiry', label: 'Expiry Management', icon: AlertTriangle },
   { divider: 'Trackers' },
   { to: '/ppe-tracker', label: 'PPE Tracker', icon: HardHat },
