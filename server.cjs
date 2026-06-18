@@ -12,9 +12,10 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'wms-data.json');
+const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_URL || '';
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 function loadData() {
   try {
@@ -37,10 +38,87 @@ function saveData(extra) {
     persistedData.stockOutSequence = stockOutSequence;
     persistedData.requestSequence = requestSequence;
     fs.writeFileSync(DATA_FILE, JSON.stringify(persistedData, null, 2));
+    syncToGoogleSheetDebounced();
   } catch(e) { console.error('saveData error:', e.message); }
 }
 
 var persistedData = loadData() || { extraUsers: [] };
+
+function syncToGoogleSheet() {
+  if (!GOOGLE_SHEET_URL) return;
+  try {
+    var sheetsData = {};
+    var masterHeaders = ['id','itemCode','itemName','category','subcategory','unitOfMeasure','location','trackerGroup','batchControlled','fefoEnabled','minimumStock','maximumStock','reorderLevel','standardShelfLife','manufacturer','supplier','msdsRequired','msdsLink','fifoRequired','remarks','status','createdAt','updatedAt'];
+    sheetsData['MasterItems'] = { headers: masterHeaders, rows: persistedData.masterItems || [] };
+    var empHeaders = ['id','employeeId','employeeName','department','position','location','hireDate','status','createdAt','updatedAt'];
+    sheetsData['Employees'] = { headers: empHeaders, rows: persistedData.employees || [] };
+    var siHeaders = ['id','grnNumber','receiptDate','itemId','itemCode','itemName','quantity','unit','batchId','dom','bbd','expiryDate','supplier','warehouseLocation','purchaseOrder','referenceNumber','remarks','createdBy','createdAt'];
+    sheetsData['StockIn'] = { headers: siHeaders, rows: persistedData.stockInRecords || [] };
+    var soHeaders = ['id','issueNumber','issueDate','employeeId','employeeName','department','itemId','itemCode','itemName','quantity','batchId','jobNumber','remarks','createdBy','createdAt'];
+    sheetsData['StockOut'] = { headers: soHeaders, rows: persistedData.stockOutRecords || [] };
+    var blHeaders = ['id','batchId','itemId','itemCode','itemName','dom','bbd','expiryDate','quantityIn','quantityOut','balance','status','createdAt','updatedAt'];
+    sheetsData['BatchLedger'] = { headers: blHeaders, rows: persistedData.batchLedger || [] };
+    var jobHeaders = ['id','jobNumber','jobName','description','status','startDate','endDate','createdAt','updatedAt'];
+    sheetsData['Jobs'] = { headers: jobHeaders, rows: persistedData.jobs || [] };
+
+    var payload = JSON.stringify({ action: 'saveAll', sheets: sheetsData });
+    fetch(GOOGLE_SHEET_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    }).then(function() { console.log('Synced to Google Sheet'); })
+      .catch(function(e) { console.error('Google Sheet sync error:', e.message); });
+  } catch(e) { console.error('Google Sheet sync error:', e.message); }
+}
+
+var lastSyncTime = 0;
+function syncToGoogleSheetDebounced() {
+  var now = Date.now();
+  if (now - lastSyncTime < 10000) return;
+  lastSyncTime = now;
+  setTimeout(syncToGoogleSheet, 1000);
+}
+
+function pullFromGoogleSheet(callback) {
+  if (!GOOGLE_SHEET_URL) { callback(false); return; }
+  console.log('Pulling data from Google Sheet...');
+  fetch(GOOGLE_SHEET_URL + '?action=getAll')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { console.error('Google Sheet pull error:', data.error); callback(false); return; }
+      var changed = false;
+      if (data.MasterItems && data.MasterItems.length > 0) {
+        persistedData.masterItems = data.MasterItems;
+        changed = true;
+      }
+      if (data.Employees && data.Employees.length > 0) {
+        persistedData.employees = data.Employees;
+        changed = true;
+      }
+      if (data.StockIn && data.StockIn.length > 0) {
+        persistedData.stockInRecords = data.StockIn;
+        changed = true;
+      }
+      if (data.StockOut && data.StockOut.length > 0) {
+        persistedData.stockOutRecords = data.StockOut;
+        changed = true;
+      }
+      if (data.BatchLedger && data.BatchLedger.length > 0) {
+        persistedData.batchLedger = data.BatchLedger;
+        changed = true;
+      }
+      if (data.Jobs && data.Jobs.length > 0) {
+        persistedData.jobs = data.Jobs;
+        changed = true;
+      }
+      if (changed) {
+        saveData();
+        console.log('Data restored from Google Sheet');
+      }
+      callback(changed);
+    })
+    .catch(function(e) { console.error('Google Sheet pull error:', e.message); callback(false); });
+}
 
 let emailTransporter = null;
 let alertEmailAddress = '';
@@ -545,4 +623,13 @@ app.listen(PORT, '0.0.0.0', function() {
   console.log('='.repeat(50));
   console.log('  WMS Server running on port ' + PORT);
   console.log('='.repeat(50));
+  if (GOOGLE_SHEET_URL) {
+    console.log('  Google Sheet sync: ENABLED');
+    pullFromGoogleSheet(function(changed) {
+      if (changed) console.log('  Initial data loaded from Google Sheet');
+      else console.log('  No data on Google Sheet, using local data');
+    });
+  } else {
+    console.log('  Google Sheet sync: DISABLED (set GOOGLE_SHEET_URL env)');
+  }
 });
