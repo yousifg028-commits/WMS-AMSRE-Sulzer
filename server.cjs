@@ -88,17 +88,18 @@ function pullFromGoogleSheet(callback) {
   var url = GOOGLE_SHEET_URL;
   if (!url.endsWith('/exec') && !url.endsWith('/dev')) url = url + '/exec';
   console.log('Google Sheet URL: ' + url);
-  fetch(url + '?action=getAll', { redirect: 'follow' })
-    .then(function(r) { return r.text(); })
+  
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 30000);
+  
+  fetch(url + '?action=getAll', { redirect: 'follow', signal: controller.signal })
+    .then(function(r) { clearTimeout(timeout); return r.text(); })
     .then(function(text) {
       try {
         var data = JSON.parse(text);
       } catch(e) {
         console.error('Google Sheet pull FAILED: Response is HTML, not JSON.');
-        console.error('FIX: 1) Open the URL in your browser and click Allow');
-        console.error('2) Make sure URL ends with /exec');
-        console.error('3) Make sure deployment is set to "Anyone" access');
-        console.error('First 150 chars: ' + text.substring(0, 150));
+        console.error('First 200 chars: ' + text.substring(0, 200));
         callback(false);
         return;
       }
@@ -124,8 +125,16 @@ function pullFromGoogleSheet(callback) {
         persistedData.batchLedger = data.BatchLedger;
         changed = true;
       }
+      if (data.InventoryBalances && data.InventoryBalances.length > 0) {
+        persistedData.inventoryBalances = data.InventoryBalances;
+        changed = true;
+      }
       if (data.Jobs && data.Jobs.length > 0) {
         persistedData.jobs = data.Jobs;
+        changed = true;
+      }
+      if (data.Users && data.Users.length > 0) {
+        persistedData.users = data.Users;
         changed = true;
       }
       if (changed) {
@@ -134,7 +143,11 @@ function pullFromGoogleSheet(callback) {
       }
       callback(changed);
     })
-    .catch(function(e) { console.error('Google Sheet pull error:', e.message); callback(false); });
+    .catch(function(e) {
+      clearTimeout(timeout);
+      console.error('Google Sheet pull error:', e.message);
+      callback(false);
+    });
 }
 
 let emailTransporter = null;
@@ -630,6 +643,42 @@ app.post('/api/import-csv-data', authMiddleware, function(req, res) {
   syncToGoogleSheetDebounced();
   console.log('Data imported:', JSON.stringify(imported));
   res.json({ ok: true, imported: imported });
+});
+
+app.get('/api/diag', function(req, res) {
+  var url = GOOGLE_SHEET_URL || 'NOT SET';
+  if (url !== 'NOT SET' && !url.endsWith('/exec')) url = url + '/exec';
+  var checkUrl = url !== 'NOT SET' ? url + '?action=getAll' : null;
+  
+  if (!checkUrl) {
+    return res.json({ 
+      googleSheetUrl: 'NOT SET', 
+      message: 'GOOGLE_SHEET_URL env var is not set on Render'
+    });
+  }
+  
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 15000);
+  
+  fetch(checkUrl, { redirect: 'follow', signal: controller.signal })
+    .then(function(r) { clearTimeout(timeout); return r.text(); })
+    .then(function(text) {
+      var isJson = false;
+      var parsed = null;
+      try { parsed = JSON.parse(text); isJson = true; } catch(e) {}
+      res.json({
+        googleSheetUrl: GOOGLE_SHEET_URL,
+        isJson: isJson,
+        firstChars: text.substring(0, 200),
+        sheetNames: isJson ? Object.keys(parsed) : [],
+        counts: isJson ? Object.fromEntries(Object.entries(parsed).map(function([k,v]) { return [k, Array.isArray(v) ? v.length : 0]; })) : {},
+        dataCount: isJson ? Object.values(parsed).reduce(function(a,b) { return a + (Array.isArray(b) ? b.length : 0); }, 0) : 0,
+      });
+    })
+    .catch(function(e) {
+      clearTimeout(timeout);
+      res.json({ googleSheetUrl: GOOGLE_SHEET_URL, error: e.message });
+    });
 });
 
 app.use(function(req, res) {
