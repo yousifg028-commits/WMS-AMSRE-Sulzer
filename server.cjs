@@ -591,7 +591,7 @@ app.post('/api/pending-requests/:id/reject', authMiddleware, function(req, res) 
 
 app.use(express.static(path.join(__dirname, 'dist')));
 
-app.post('/api/import-csv-data', authMiddleware, function(req, res) {
+app.post('/api/import-csv-data', function(req, res) {
   var body = req.body;
   var imported = {};
   if (body.masterItems && Array.isArray(body.masterItems)) {
@@ -627,6 +627,7 @@ app.post('/api/import-csv-data', authMiddleware, function(req, res) {
     imported.categories = body.categories.length;
   }
   saveData();
+  syncToGoogleSheetDebounced();
   console.log('Data imported:', JSON.stringify(imported));
   res.json({ ok: true, imported: imported });
 });
