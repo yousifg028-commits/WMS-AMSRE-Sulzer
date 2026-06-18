@@ -496,6 +496,46 @@ app.post('/api/pending-requests/:id/reject', authMiddleware, function(req, res) 
 
 app.use(express.static(path.join(__dirname, 'dist')));
 
+app.post('/api/import-csv-data', function(req, res) {
+  var body = req.body;
+  var imported = {};
+  if (body.masterItems && Array.isArray(body.masterItems)) {
+    persistedData.masterItems = body.masterItems;
+    imported.masterItems = body.masterItems.length;
+  }
+  if (body.employees && Array.isArray(body.employees)) {
+    persistedData.employees = body.employees;
+    imported.employees = body.employees.length;
+  }
+  if (body.stockInRecords && Array.isArray(body.stockInRecords)) {
+    persistedData.stockInRecords = body.stockInRecords;
+    imported.stockInRecords = body.stockInRecords.length;
+  }
+  if (body.stockOutRecords && Array.isArray(body.stockOutRecords)) {
+    persistedData.stockOutRecords = body.stockOutRecords;
+    imported.stockOutRecords = body.stockOutRecords.length;
+  }
+  if (body.batchLedger && Array.isArray(body.batchLedger)) {
+    persistedData.batchLedger = body.batchLedger;
+    imported.batchLedger = body.batchLedger.length;
+  }
+  if (body.inventoryBalances && Array.isArray(body.inventoryBalances)) {
+    persistedData.inventoryBalances = body.inventoryBalances;
+    imported.inventoryBalances = body.inventoryBalances.length;
+  }
+  if (body.jobs && Array.isArray(body.jobs)) {
+    persistedData.jobs = body.jobs;
+    imported.jobs = body.jobs.length;
+  }
+  if (body.categories && Array.isArray(body.categories)) {
+    persistedData.categories = body.categories;
+    imported.categories = body.categories.length;
+  }
+  saveData();
+  console.log('Data imported:', JSON.stringify(imported));
+  res.json({ ok: true, imported: imported });
+});
+
 app.use(function(req, res) {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
