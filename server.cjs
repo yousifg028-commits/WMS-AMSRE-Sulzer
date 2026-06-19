@@ -382,7 +382,7 @@ app.post('/api/public/sync-data', authMiddleware, function(req, res) {
 // Full sync - GET: server sends ALL data to client
 app.get('/api/full-sync', authMiddleware, function(req, res) {
   res.json({
-    masterItems: persistedData.masterItems || [],
+    masterItems: (persistedData.masterItems || []).slice().sort(function(a, b) { if (a.category !== b.category) return a.category.localeCompare(b.category); return (a.itemCode || '').localeCompare(b.itemCode || ''); }),
     employees: persistedData.employees || [],
     categories: persistedData.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'],
     stockInRecords: persistedData.stockInRecords || [],

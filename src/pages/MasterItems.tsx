@@ -58,6 +58,9 @@ export default function MasterItems() {
       const matchSearch = !search || item.itemCode.toLowerCase().includes(search.toLowerCase()) || item.itemName.toLowerCase().includes(search.toLowerCase());
       const matchCat = !filterCat || item.category === filterCat;
       return matchStatus && matchSearch && matchCat;
+    }).sort((a, b) => {
+      if (a.category !== b.category) return a.category.localeCompare(b.category);
+      return a.itemCode.localeCompare(b.itemCode);
     });
   }, [masterItems, search, filterCat, activeTab]);
 
