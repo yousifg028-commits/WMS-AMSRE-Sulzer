@@ -356,8 +356,61 @@ app.get('/api/full-sync', authMiddleware, function(req, res) {
 // Full sync - POST: client sends ALL data to server
 app.post('/api/full-sync', authMiddleware, function(req, res) {
   var body = req.body;
-  persistedData.masterItems = body.masterItems || [];
-  persistedData.employees = body.employees || [];
+
+  if (body.masterItems && body.masterItems.length > 0) {
+    var clientItems = body.masterItems;
+    var serverItems = persistedData.masterItems || [];
+    var clientMap = {};
+    for (var i = 0; i < clientItems.length; i++) { clientMap[clientItems[i].id] = clientItems[i]; }
+    var serverMap = {};
+    for (var i = 0; i < serverItems.length; i++) { serverMap[serverItems[i].id] = serverItems[i]; }
+    var merged = [];
+    var serverIds = {};
+    for (var i = 0; i < serverItems.length; i++) {
+      var sItem = serverItems[i];
+      serverIds[sItem.id] = true;
+      if (clientMap[sItem.id]) {
+        var cItem = clientMap[sItem.id];
+        var serverTime = new Date(sItem.updatedAt || sItem.createdAt || 0).getTime();
+        var clientTime = new Date(cItem.updatedAt || cItem.createdAt || 0).getTime();
+        merged.push(clientTime > serverTime ? cItem : sItem);
+      } else {
+        merged.push(sItem);
+      }
+    }
+    for (var i = 0; i < clientItems.length; i++) {
+      if (!serverIds[clientItems[i].id]) merged.push(clientItems[i]);
+    }
+    persistedData.masterItems = merged;
+  }
+
+  if (body.employees && body.employees.length > 0) {
+    var clientEmps = body.employees;
+    var serverEmps = persistedData.employees || [];
+    var clientEmpMap = {};
+    for (var i = 0; i < clientEmps.length; i++) { clientEmpMap[clientEmps[i].id] = clientEmps[i]; }
+    var serverEmpMap = {};
+    for (var i = 0; i < serverEmps.length; i++) { serverEmpMap[serverEmps[i].id] = serverEmps[i]; }
+    var mergedEmps = [];
+    var serverEmpIds = {};
+    for (var i = 0; i < serverEmps.length; i++) {
+      var sEmp = serverEmps[i];
+      serverEmpIds[sEmp.id] = true;
+      if (clientEmpMap[sEmp.id]) {
+        var cEmp = clientEmpMap[sEmp.id];
+        var sTime = new Date(sEmp.updatedAt || sEmp.createdAt || 0).getTime();
+        var cTime = new Date(cEmp.updatedAt || cEmp.createdAt || 0).getTime();
+        mergedEmps.push(cTime > sTime ? cEmp : sEmp);
+      } else {
+        mergedEmps.push(sEmp);
+      }
+    }
+    for (var i = 0; i < clientEmps.length; i++) {
+      if (!serverEmpIds[clientEmps[i].id]) mergedEmps.push(clientEmps[i]);
+    }
+    persistedData.employees = mergedEmps;
+  }
+
   persistedData.categories = body.categories || persistedData.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'];
   persistedData.stockInRecords = body.stockInRecords || [];
 
@@ -382,6 +435,7 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   persistedData.extraUsers = body.extraUsers || [];
   persistedData.publicEmployees = body.publicEmployees || [];
   saveData();
+  syncToGoogleSheetDebounced();
   res.json({ ok: true });
 });
 

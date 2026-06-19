@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
@@ -40,11 +40,17 @@ interface User {
 
 function SyncToServer() {
   const store = useWMSStore;
-  const { masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail } = useWMSStore();
-  const categories = useWMSStore((s) => (s as any).categories || []);
+  const tokenRef = useRef<string | null>(null);
+  const isPullingRef = useRef(false);
+  const lastPushRef = useRef(0);
+
+  useEffect(() => {
+    const token = localStorage.getItem('wms_token');
+    tokenRef.current = token;
+  }, []);
 
   const pushToServer = () => {
-    const token = localStorage.getItem('wms_token');
+    const token = tokenRef.current || localStorage.getItem('wms_token');
     if (!token) return;
     const s = store.getState();
     const itemsWithQty = s.masterItems.map((item) => {
@@ -85,8 +91,9 @@ function SyncToServer() {
   };
 
   const pullFromServer = () => {
-    const token = localStorage.getItem('wms_token');
+    const token = tokenRef.current || localStorage.getItem('wms_token');
     if (!token) return;
+    isPullingRef.current = true;
     fetch('/api/full-sync', {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -100,7 +107,7 @@ function SyncToServer() {
         return r.json();
       })
       .then((data) => {
-        if (!data || data.error) return;
+        if (!data || data.error) { isPullingRef.current = false; return; }
 
         const serverMasterItems = data.masterItems || [];
         const serverEmployees = data.employees || [];
@@ -154,19 +161,33 @@ function SyncToServer() {
             }
           }
         }
+        isPullingRef.current = false;
       })
-      .catch(() => {});
+      .catch(() => { isPullingRef.current = false; });
   };
 
   useEffect(() => {
+    const unsub = useWMSStore.subscribe((state, prevState) => {
+      if (isPullingRef.current) return;
+      const now = Date.now();
+      if (now - lastPushRef.current < 8000) return;
+      if (JSON.stringify(state.masterItems) !== JSON.stringify(prevState.masterItems) ||
+          JSON.stringify(state.employees) !== JSON.stringify(prevState.employees) ||
+          JSON.stringify(state.stockInRecords) !== JSON.stringify(prevState.stockInRecords) ||
+          JSON.stringify(state.stockOutRecords) !== JSON.stringify(prevState.stockOutRecords) ||
+          JSON.stringify(state.batchLedger) !== JSON.stringify(prevState.batchLedger) ||
+          JSON.stringify(state.jobs) !== JSON.stringify(prevState.jobs) ||
+          JSON.stringify(state.inventoryBalances) !== JSON.stringify(prevState.inventoryBalances)) {
+        lastPushRef.current = now;
+        pushToServer();
+      }
+    });
+
     pullFromServer();
-    pushToServer();
-    const interval = setInterval(() => {
-      pullFromServer();
-      pushToServer();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail, categories]);
+    const pullInterval = setInterval(pullFromServer, 5000);
+
+    return () => { unsub(); clearInterval(pullInterval); };
+  }, []);
 
   return null;
 }

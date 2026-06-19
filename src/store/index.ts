@@ -34,6 +34,7 @@ interface WMSState {
   grnSequence: number;
   issueSequence: number;
   adjustmentSequence: number;
+  _pushNeeded: boolean;
 
   addItem: (item: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateItem: (id: string, updates: Partial<MasterItem>) => void;
@@ -240,6 +241,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   grnSequence: 9,
   issueSequence: 11,
   adjustmentSequence: 1,
+  _pushNeeded: false,
 
   addItem: (item) => set((state) => {
     const now = new Date().toISOString();
