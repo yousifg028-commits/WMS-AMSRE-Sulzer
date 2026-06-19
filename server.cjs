@@ -117,7 +117,6 @@ function pullFromGoogleSheet(callback) {
         if (sheetArr === undefined || sheetArr === null) return serverArr || [];
         if (sheetArr.length === 0) return [];
         if (!serverArr || serverArr.length === 0) return sheetArr;
-        if (!serverArr || serverArr.length === 0) return sheetArr || [];
         var sMap = {};
         for (var i = 0; i < serverArr.length; i++) {
           var id = serverArr[i].id;
@@ -153,6 +152,9 @@ function pullFromGoogleSheet(callback) {
           } else {
             merged[id] = sItem;
           }
+        }
+        for (var id in cMap) {
+          if (!merged[id]) merged[id] = cMap[id];
         }
         return Object.values(merged);
       }
