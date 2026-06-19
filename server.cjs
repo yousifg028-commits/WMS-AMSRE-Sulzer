@@ -152,11 +152,7 @@ function pullFromGoogleSheet(callback) {
             merged[id] = sItem;
           }
         }
-        for (var id in cMap) {
-          if (!merged[id]) merged[id] = cMap[id];
-        }
         return Object.values(merged);
-        return merged;
       }
 
       var changed = false;
