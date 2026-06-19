@@ -112,58 +112,65 @@ function pullFromGoogleSheet(callback) {
         return;
       }
       if (data.error) { console.error('Google Sheet pull error:', data.error); callback(false); return; }
+      
+      function mergeArrays(serverArr, sheetArr, timeKey) {
+        if (!sheetArr || sheetArr.length === 0) return serverArr;
+        if (!serverArr || serverArr.length === 0) return sheetArr;
+        var sMap = {};
+        for (var i = 0; i < serverArr.length; i++) { sMap[serverArr[i].id] = serverArr[i]; }
+        var cMap = {};
+        for (var i = 0; i < sheetArr.length; i++) { cMap[sheetArr[i].id] = sheetArr[i]; }
+        var merged = [];
+        var allIds = {};
+        for (var i = 0; i < serverArr.length; i++) {
+          var sItem = serverArr[i];
+          allIds[sItem.id] = true;
+          if (cMap[sItem.id]) {
+            var cItem = cMap[sItem.id];
+            var sTime = new Date(sItem[timeKey] || sItem.createdAt || 0).getTime();
+            var cTime = new Date(cItem[timeKey] || cItem.createdAt || 0).getTime();
+            merged.push(cTime > sTime ? cItem : sItem);
+          } else {
+            merged.push(sItem);
+          }
+        }
+        for (var i = 0; i < sheetArr.length; i++) {
+          if (!allIds[sheetArr[i].id]) merged.push(sheetArr[i]);
+        }
+        return merged;
+      }
+
       var changed = false;
-      if (data.MasterItems && data.MasterItems.length > 0) {
-        persistedData.masterItems = data.MasterItems;
+      var newMasterItems = mergeArrays(persistedData.masterItems, data.MasterItems, 'updatedAt');
+      if (newMasterItems !== persistedData.masterItems) { persistedData.masterItems = newMasterItems; changed = true; }
+      var newEmployees = mergeArrays(persistedData.employees, data.Employees, 'updatedAt');
+      if (newEmployees !== persistedData.employees) { persistedData.employees = newEmployees; changed = true; }
+      var newStockIn = mergeArrays(persistedData.stockInRecords, data.StockIn, 'createdAt');
+      if (newStockIn !== persistedData.stockInRecords) { persistedData.stockInRecords = newStockIn; changed = true; }
+      var newStockOut = mergeArrays(persistedData.stockOutRecords, data.StockOut, 'createdAt');
+      if (newStockOut !== persistedData.stockOutRecords) { persistedData.stockOutRecords = newStockOut; changed = true; }
+      var newBatchLedger = mergeArrays(persistedData.batchLedger, data.BatchLedger, 'updatedAt');
+      if (newBatchLedger !== persistedData.batchLedger) { persistedData.batchLedger = newBatchLedger; changed = true; }
+      var newInvBal = mergeArrays(persistedData.inventoryBalances, data.InventoryBalances, 'lastUpdated');
+      if (newInvBal !== persistedData.inventoryBalances) { persistedData.inventoryBalances = newInvBal; changed = true; }
+      var newJobs = mergeArrays(persistedData.jobs, data.Jobs, 'updatedAt');
+      if (newJobs !== persistedData.jobs) { persistedData.jobs = newJobs; changed = true; }
+      var newUsers = mergeArrays(persistedData.users, data.Users, 'createdAt');
+      if (newUsers !== persistedData.users) { persistedData.users = newUsers; changed = true; }
+      var newQM = mergeArrays(persistedData.quarantineMaterials, data.QuarantineMaterials, 'updatedAt');
+      if (newQM !== persistedData.quarantineMaterials) { persistedData.quarantineMaterials = newQM; changed = true; }
+      var newCM = mergeArrays(persistedData.clientMaterials, data.ClientMaterials, 'updatedAt');
+      if (newCM !== persistedData.clientMaterials) { persistedData.clientMaterials = newCM; changed = true; }
+      var newJM = mergeArrays(persistedData.jobMaterials, data.JobMaterials, 'updatedAt');
+      if (newJM !== persistedData.jobMaterials) { persistedData.jobMaterials = newJM; changed = true; }
+      if (data.AuditTrail && data.AuditTrail.length > 0) {
+        persistedData.auditTrail = data.AuditTrail;
         changed = true;
       }
-      if (data.Employees && data.Employees.length > 0) {
-        persistedData.employees = data.Employees;
-        changed = true;
-      }
-      if (data.StockIn && data.StockIn.length > 0) {
-        persistedData.stockInRecords = data.StockIn;
-        changed = true;
-      }
-      if (data.StockOut && data.StockOut.length > 0) {
-        persistedData.stockOutRecords = data.StockOut;
-        changed = true;
-      }
-      if (data.BatchLedger && data.BatchLedger.length > 0) {
-        persistedData.batchLedger = data.BatchLedger;
-        changed = true;
-      }
-      if (data.InventoryBalances && data.InventoryBalances.length > 0) {
-        persistedData.inventoryBalances = data.InventoryBalances;
-        changed = true;
-      }
-      if (data.Jobs && data.Jobs.length > 0) {
-        persistedData.jobs = data.Jobs;
-        changed = true;
-      }
-      if (data.Users && data.Users.length > 0) {
-        persistedData.users = data.Users;
-        changed = true;
-      }
-      if (data.QuarantineMaterials) {
-        persistedData.quarantineMaterials = data.QuarantineMaterials;
-        changed = true;
-      }
-      if (data.ClientMaterials) {
-        persistedData.clientMaterials = data.ClientMaterials;
-        changed = true;
-      }
-      if (data.JobMaterials) {
-        persistedData.jobMaterials = data.JobMaterials;
-        changed = true;
-      }
-      if (data.PendingRequests) {
-        persistedData.pendingRequests = data.PendingRequests;
-        changed = true;
-      }
+      if (data.Dashboard && data.Dashboard.length > 0) { changed = true; }
       if (changed) {
         saveData();
-        console.log('Data restored from Google Sheet');
+        console.log('Data merged from Google Sheet');
       }
       callback(changed);
     })
@@ -454,9 +461,9 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   persistedData.users = body.users || [];
   persistedData.stockAdjustments = body.stockAdjustments || [];
   persistedData.auditTrail = body.auditTrail || [];
-  persistedData.quarantineMaterials = body.quarantineMaterials || [];
-  persistedData.clientMaterials = body.clientMaterials || [];
-  persistedData.jobMaterials = body.jobMaterials || [];
+  if (body.quarantineMaterials && body.quarantineMaterials.length > 0) persistedData.quarantineMaterials = body.quarantineMaterials;
+  if (body.clientMaterials && body.clientMaterials.length > 0) persistedData.clientMaterials = body.clientMaterials;
+  if (body.jobMaterials && body.jobMaterials.length > 0) persistedData.jobMaterials = body.jobMaterials;
   persistedData.alertEmail = body.alertEmail || '';
   persistedData.batchSequence = body.batchSequence || 1;
   persistedData.grnSequence = body.grnSequence || 1;
