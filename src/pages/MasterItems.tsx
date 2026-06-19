@@ -13,10 +13,16 @@ const categoryPrefix: Record<string, string> = {
   'Lubricant': 'LUB', 'Consumable': 'CON', 'Stationery': 'STA', 'Quality': 'QC',
 };
 
-function generateItemCode(category: string, existingItems: MasterItem[]): string {
-  const prefix = categoryPrefix[category] || 'ITM';
-  const nextNum = existingItems.length + 1;
-  return `${prefix}-${String(nextNum).padStart(3, '0')}`;
+function generateItemCode(_category: string, existingItems: MasterItem[]): string {
+  let maxNum = 0;
+  for (const item of existingItems) {
+    const match = item.itemCode.match(/^MI-(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
+    }
+  }
+  return `MI-${String(maxNum + 1).padStart(3, '0')}`;
 }
 
 const emptyItem: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'> = {
