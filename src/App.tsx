@@ -134,20 +134,8 @@ function SyncToServer() {
 
         const hasServerData = serverMasterItems.length > 0 || serverEmployees.length > 0;
 
-        function mergeById(localArr: any[], serverArr: any[]) {
-          const map = new Map<string, any>();
-          for (const item of serverArr) map.set(item.id, item);
-          for (const item of localArr) {
-            const serverItem = map.get(item.id);
-            if (!serverItem) {
-              map.set(item.id, item);
-            } else {
-              const lt = new Date(item.updatedAt || item.createdAt || 0).getTime();
-              const st = new Date(serverItem.updatedAt || serverItem.createdAt || 0).getTime();
-              if (lt > st) map.set(item.id, item);
-            }
-          }
-          return Array.from(map.values());
+        function mergeById(_localArr: any[], serverArr: any[]) {
+          return serverArr;
         }
 
         if (hasServerData) {

@@ -115,7 +115,7 @@ function pullFromGoogleSheet(callback) {
       
       function mergeArrays(serverArr, sheetArr, timeKey) {
         if (sheetArr === undefined || sheetArr === null) return serverArr || [];
-        if (sheetArr.length === 0) return [];
+        if (sheetArr.length === 0) return serverArr || [];
         if (!serverArr || serverArr.length === 0) return sheetArr;
         var sMap = {};
         for (var i = 0; i < serverArr.length; i++) {
@@ -143,15 +143,7 @@ function pullFromGoogleSheet(callback) {
         }
         var merged = {};
         for (var id in sMap) {
-          var sItem = sMap[id];
-          var cItem = cMap[id];
-          if (cItem) {
-            var sTime = new Date(sItem[timeKey] || sItem.createdAt || 0).getTime();
-            var cTime = new Date(cItem[timeKey] || cItem.createdAt || 0).getTime();
-            merged[id] = cTime > sTime ? cItem : sItem;
-          } else {
-            merged[id] = sItem;
-          }
+          merged[id] = sMap[id];
         }
         for (var id in cMap) {
           if (!merged[id]) merged[id] = cMap[id];
