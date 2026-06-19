@@ -106,10 +106,10 @@ export default function Dashboard() {
 
   const recentTransactions = useMemo(() => {
     const all = [
-      ...stockInRecords.map(r => ({ type: 'Stock In' as const, date: r.createdAt, ref: r.grnNumber, item: r.itemName, qty: r.quantity })),
-      ...stockOutRecords.map(r => ({ type: 'Stock Out' as const, date: r.createdAt, ref: r.issueNumber, item: r.itemName, qty: r.quantity })),
+      ...stockInRecords.map(r => ({ type: 'Stock In' as const, date: r.createdAt || r.receiptDate || '', ref: r.grnNumber, item: r.itemName, qty: r.quantity })),
+      ...stockOutRecords.map(r => ({ type: 'Stock Out' as const, date: r.createdAt || r.issueDate || '', ref: r.issueNumber, item: r.itemName, qty: r.quantity })),
     ];
-    return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10);
+    return all.filter(t => t.date && !isNaN(new Date(t.date).getTime())).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10);
   }, [stockInRecords, stockOutRecords]);
 
   const statCards = [
@@ -279,7 +279,7 @@ export default function Dashboard() {
                   <td className="table-cell font-medium">{tx.ref}</td>
                   <td className="table-cell">{tx.item}</td>
                   <td className="table-cell">{tx.qty}</td>
-                  <td className="table-cell text-gray-500">{format(new Date(tx.date), 'dd MMM yyyy HH:mm')}</td>
+                  <td className="table-cell text-gray-500">{tx.date && !isNaN(new Date(tx.date).getTime()) ? format(new Date(tx.date), 'dd MMM yyyy HH:mm') : 'N/A'}</td>
                 </tr>
               ))}
             </tbody>
