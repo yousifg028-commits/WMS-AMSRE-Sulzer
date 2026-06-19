@@ -114,29 +114,48 @@ function pullFromGoogleSheet(callback) {
       if (data.error) { console.error('Google Sheet pull error:', data.error); callback(false); return; }
       
       function mergeArrays(serverArr, sheetArr, timeKey) {
-        if (!sheetArr || sheetArr.length === 0) return serverArr;
-        if (!serverArr || serverArr.length === 0) return sheetArr;
+        if (!sheetArr || sheetArr.length === 0) return serverArr || [];
+        if (!serverArr || serverArr.length === 0) return sheetArr || [];
         var sMap = {};
-        for (var i = 0; i < serverArr.length; i++) { sMap[serverArr[i].id] = serverArr[i]; }
-        var cMap = {};
-        for (var i = 0; i < sheetArr.length; i++) { cMap[sheetArr[i].id] = sheetArr[i]; }
-        var merged = [];
-        var allIds = {};
         for (var i = 0; i < serverArr.length; i++) {
-          var sItem = serverArr[i];
-          allIds[sItem.id] = true;
-          if (cMap[sItem.id]) {
-            var cItem = cMap[sItem.id];
-            var sTime = new Date(sItem[timeKey] || sItem.createdAt || 0).getTime();
-            var cTime = new Date(cItem[timeKey] || cItem.createdAt || 0).getTime();
-            merged.push(cTime > sTime ? cItem : sItem);
+          var id = serverArr[i].id;
+          var existing = sMap[id];
+          if (!existing) {
+            sMap[id] = serverArr[i];
           } else {
-            merged.push(sItem);
+            var t1 = new Date(existing[timeKey] || existing.createdAt || 0).getTime();
+            var t2 = new Date(serverArr[i][timeKey] || serverArr[i].createdAt || 0).getTime();
+            if (t2 > t1) sMap[id] = serverArr[i];
           }
         }
+        var cMap = {};
         for (var i = 0; i < sheetArr.length; i++) {
-          if (!allIds[sheetArr[i].id]) merged.push(sheetArr[i]);
+          var id = sheetArr[i].id;
+          var existing = cMap[id];
+          if (!existing) {
+            cMap[id] = sheetArr[i];
+          } else {
+            var t1 = new Date(existing[timeKey] || existing.createdAt || 0).getTime();
+            var t2 = new Date(sheetArr[i][timeKey] || sheetArr[i].createdAt || 0).getTime();
+            if (t2 > t1) cMap[id] = sheetArr[i];
+          }
         }
+        var merged = {};
+        for (var id in sMap) {
+          var sItem = sMap[id];
+          var cItem = cMap[id];
+          if (cItem) {
+            var sTime = new Date(sItem[timeKey] || sItem.createdAt || 0).getTime();
+            var cTime = new Date(cItem[timeKey] || cItem.createdAt || 0).getTime();
+            merged[id] = cTime > sTime ? cItem : sItem;
+          } else {
+            merged[id] = sItem;
+          }
+        }
+        for (var id in cMap) {
+          if (!merged[id]) merged[id] = cMap[id];
+        }
+        return Object.values(merged);
         return merged;
       }
 
@@ -394,55 +413,51 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   if (body.masterItems && body.masterItems.length > 0) {
     var clientItems = body.masterItems;
     var serverItems = persistedData.masterItems || [];
-    var clientMap = {};
-    for (var i = 0; i < clientItems.length; i++) { clientMap[clientItems[i].id] = clientItems[i]; }
-    var serverMap = {};
-    for (var i = 0; i < serverItems.length; i++) { serverMap[serverItems[i].id] = serverItems[i]; }
-    var merged = [];
-    var serverIds = {};
+    var itemMap = {};
     for (var i = 0; i < serverItems.length; i++) {
-      var sItem = serverItems[i];
-      serverIds[sItem.id] = true;
-      if (clientMap[sItem.id]) {
-        var cItem = clientMap[sItem.id];
-        var serverTime = new Date(sItem.updatedAt || sItem.createdAt || 0).getTime();
-        var clientTime = new Date(cItem.updatedAt || cItem.createdAt || 0).getTime();
-        merged.push(clientTime > serverTime ? cItem : sItem);
-      } else {
-        merged.push(sItem);
+      var id = serverItems[i].id;
+      if (!itemMap[id]) itemMap[id] = serverItems[i];
+      else {
+        var t1 = new Date(itemMap[id].updatedAt || itemMap[id].createdAt || 0).getTime();
+        var t2 = new Date(serverItems[i].updatedAt || serverItems[i].createdAt || 0).getTime();
+        if (t2 > t1) itemMap[id] = serverItems[i];
       }
     }
     for (var i = 0; i < clientItems.length; i++) {
-      if (!serverIds[clientItems[i].id]) merged.push(clientItems[i]);
+      var id = clientItems[i].id;
+      if (!itemMap[id]) itemMap[id] = clientItems[i];
+      else {
+        var t1 = new Date(itemMap[id].updatedAt || itemMap[id].createdAt || 0).getTime();
+        var t2 = new Date(clientItems[i].updatedAt || clientItems[i].createdAt || 0).getTime();
+        if (t2 > t1) itemMap[id] = clientItems[i];
+      }
     }
-    persistedData.masterItems = merged;
+    persistedData.masterItems = Object.values(itemMap);
   }
 
   if (body.employees && body.employees.length > 0) {
     var clientEmps = body.employees;
     var serverEmps = persistedData.employees || [];
-    var clientEmpMap = {};
-    for (var i = 0; i < clientEmps.length; i++) { clientEmpMap[clientEmps[i].id] = clientEmps[i]; }
-    var serverEmpMap = {};
-    for (var i = 0; i < serverEmps.length; i++) { serverEmpMap[serverEmps[i].id] = serverEmps[i]; }
-    var mergedEmps = [];
-    var serverEmpIds = {};
+    var empMap = {};
     for (var i = 0; i < serverEmps.length; i++) {
-      var sEmp = serverEmps[i];
-      serverEmpIds[sEmp.id] = true;
-      if (clientEmpMap[sEmp.id]) {
-        var cEmp = clientEmpMap[sEmp.id];
-        var sTime = new Date(sEmp.updatedAt || sEmp.createdAt || 0).getTime();
-        var cTime = new Date(cEmp.updatedAt || cEmp.createdAt || 0).getTime();
-        mergedEmps.push(cTime > sTime ? cEmp : sEmp);
-      } else {
-        mergedEmps.push(sEmp);
+      var id = serverEmps[i].id;
+      if (!empMap[id]) empMap[id] = serverEmps[i];
+      else {
+        var t1 = new Date(empMap[id].updatedAt || empMap[id].createdAt || 0).getTime();
+        var t2 = new Date(serverEmps[i].updatedAt || serverEmps[i].createdAt || 0).getTime();
+        if (t2 > t1) empMap[id] = serverEmps[i];
       }
     }
     for (var i = 0; i < clientEmps.length; i++) {
-      if (!serverEmpIds[clientEmps[i].id]) mergedEmps.push(clientEmps[i]);
+      var id = clientEmps[i].id;
+      if (!empMap[id]) empMap[id] = clientEmps[i];
+      else {
+        var t1 = new Date(empMap[id].updatedAt || empMap[id].createdAt || 0).getTime();
+        var t2 = new Date(clientEmps[i].updatedAt || clientEmps[i].createdAt || 0).getTime();
+        if (t2 > t1) empMap[id] = clientEmps[i];
+      }
     }
-    persistedData.employees = mergedEmps;
+    persistedData.employees = Object.values(empMap);
   }
 
   persistedData.categories = body.categories || persistedData.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'];
