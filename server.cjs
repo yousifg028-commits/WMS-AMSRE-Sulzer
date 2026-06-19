@@ -114,7 +114,9 @@ function pullFromGoogleSheet(callback) {
       if (data.error) { console.error('Google Sheet pull error:', data.error); callback(false); return; }
       
       function mergeArrays(serverArr, sheetArr, timeKey) {
-        if (!sheetArr || sheetArr.length === 0) return serverArr || [];
+        if (sheetArr === undefined || sheetArr === null) return serverArr || [];
+        if (sheetArr.length === 0) return [];
+        if (!serverArr || serverArr.length === 0) return sheetArr;
         if (!serverArr || serverArr.length === 0) return sheetArr || [];
         var sMap = {};
         for (var i = 0; i < serverArr.length; i++) {
