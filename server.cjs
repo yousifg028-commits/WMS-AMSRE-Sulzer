@@ -406,29 +406,33 @@ app.get('/api/full-sync', authMiddleware, function(req, res) {
 app.post('/api/full-sync', authMiddleware, function(req, res) {
   var body = req.body;
 
-  if (body.masterItems && body.masterItems.length > 0) {
-    var clientItems = body.masterItems;
-    var serverItems = persistedData.masterItems || [];
-    var itemMap = {};
-    for (var i = 0; i < serverItems.length; i++) {
-      var id = serverItems[i].id;
-      if (!itemMap[id]) itemMap[id] = serverItems[i];
-      else {
-        var t1 = new Date(itemMap[id].updatedAt || itemMap[id].createdAt || 0).getTime();
-        var t2 = new Date(serverItems[i].updatedAt || serverItems[i].createdAt || 0).getTime();
-        if (t2 > t1) itemMap[id] = serverItems[i];
+  if (body.masterItems !== undefined && body.masterItems !== null) {
+    if (body.masterItems.length === 0) {
+      persistedData.masterItems = [];
+    } else {
+      var clientItems = body.masterItems;
+      var serverItems = persistedData.masterItems || [];
+      var itemMap = {};
+      for (var i = 0; i < serverItems.length; i++) {
+        var id = serverItems[i].id;
+        if (!itemMap[id]) itemMap[id] = serverItems[i];
+        else {
+          var t1 = new Date(itemMap[id].updatedAt || itemMap[id].createdAt || 0).getTime();
+          var t2 = new Date(serverItems[i].updatedAt || serverItems[i].createdAt || 0).getTime();
+          if (t2 > t1) itemMap[id] = serverItems[i];
+        }
       }
-    }
-    for (var i = 0; i < clientItems.length; i++) {
-      var id = clientItems[i].id;
-      if (!itemMap[id]) itemMap[id] = clientItems[i];
-      else {
-        var t1 = new Date(itemMap[id].updatedAt || itemMap[id].createdAt || 0).getTime();
-        var t2 = new Date(clientItems[i].updatedAt || clientItems[i].createdAt || 0).getTime();
-        if (t2 > t1) itemMap[id] = clientItems[i];
+      for (var i = 0; i < clientItems.length; i++) {
+        var id = clientItems[i].id;
+        if (!itemMap[id]) itemMap[id] = clientItems[i];
+        else {
+          var t1 = new Date(itemMap[id].updatedAt || itemMap[id].createdAt || 0).getTime();
+          var t2 = new Date(clientItems[i].updatedAt || clientItems[i].createdAt || 0).getTime();
+          if (t2 > t1) itemMap[id] = clientItems[i];
+        }
       }
+      persistedData.masterItems = Object.values(itemMap);
     }
-    persistedData.masterItems = Object.values(itemMap);
   }
 
   if (body.employees && body.employees.length > 0) {
