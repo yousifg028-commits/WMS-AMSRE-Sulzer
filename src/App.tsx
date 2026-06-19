@@ -39,7 +39,6 @@ interface User {
 }
 
 function SyncToServer() {
-  const store = useWMSStore;
   const tokenRef = useRef<string | null>(null);
   const isPullingRef = useRef(false);
   const lastPushRef = useRef(0);
@@ -52,7 +51,7 @@ function SyncToServer() {
   const pushToServer = () => {
     const token = tokenRef.current || localStorage.getItem('wms_token');
     if (!token) return;
-    const s = store.getState();
+    const s = useWMSStore.getState();
     const itemsWithQty = s.masterItems.map((item) => {
       const availableQty = s.batchLedger.filter((b) => b.itemId === item.id).reduce((sum, b) => sum + b.balance, 0);
       return { ...item, _availableQty: availableQty };
@@ -143,7 +142,7 @@ function SyncToServer() {
         }
 
         if (hasServerData) {
-          const s = store.getState();
+          const s = useWMSStore.getState();
           const mergedJobMaterials = mergeById(s.jobMaterials || [], serverJobMaterials);
           const mergedQuarantine = mergeById((s as any).quarantineMaterials || [], serverQuarantine);
           const mergedClientMaterials = mergeById((s as any).clientMaterials || [], serverClientMaterials);
@@ -172,7 +171,7 @@ function SyncToServer() {
             useWMSStore.setState({ stockOutRecords: serverStockOut });
           }
         } else {
-          const s = store.getState();
+          const s = useWMSStore.getState();
           if (serverStockOut.length > 0) {
             const existingIssueNums = new Set(s.stockOutRecords.map((r: any) => r.issueNumber));
             const newRecords = serverStockOut.filter((r: any) => !existingIssueNums.has(r.issueNumber));
