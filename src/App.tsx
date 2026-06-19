@@ -1,4 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Component, type ReactNode } from 'react';
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
+  state = { error: '' };
+  static getDerivedStateFromError(e: Error) { return { error: e.message + '\n' + e.stack }; }
+  render() {
+    if (this.state.error) return <pre style={{padding:20,whiteSpace:'pre-wrap',color:'red',background:'#fff',fontSize:14}}>{this.state.error}</pre>;
+    return this.props.children;
+  }
+}
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
@@ -261,16 +270,19 @@ export default function App() {
 
   if (!user) {
     return (
+      <ErrorBoundary>
       <BrowserRouter>
         <Routes>
           <Route path="/request-stock" element={<PublicStockOutForm />} />
           <Route path="*" element={<LoginPage onLogin={handleLogin} />} />
         </Routes>
       </BrowserRouter>
+      </ErrorBoundary>
     );
   }
 
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <SyncToServer />
       <Routes>
@@ -306,5 +318,6 @@ export default function App() {
         </Route>
       </Routes>
     </BrowserRouter>
+    </ErrorBoundary>
   );
 }
