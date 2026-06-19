@@ -73,6 +73,8 @@ function SyncToServer() {
         stockAdjustments: s.stockAdjustments,
         auditTrail: s.auditTrail,
         jobMaterials: s.jobMaterials || [],
+        quarantineMaterials: (s as any).quarantineMaterials || [],
+        clientMaterials: (s as any).clientMaterials || [],
         alertEmail: s.alertEmail,
         batchSequence: s.batchSequence,
         grnSequence: s.grnSequence,
@@ -177,7 +179,11 @@ function SyncToServer() {
           JSON.stringify(state.stockOutRecords) !== JSON.stringify(prevState.stockOutRecords) ||
           JSON.stringify(state.batchLedger) !== JSON.stringify(prevState.batchLedger) ||
           JSON.stringify(state.jobs) !== JSON.stringify(prevState.jobs) ||
-          JSON.stringify(state.inventoryBalances) !== JSON.stringify(prevState.inventoryBalances)) {
+          JSON.stringify(state.inventoryBalances) !== JSON.stringify(prevState.inventoryBalances) ||
+          JSON.stringify((state as any).quarantineMaterials) !== JSON.stringify((prevState as any).quarantineMaterials) ||
+          JSON.stringify((state as any).clientMaterials) !== JSON.stringify((prevState as any).clientMaterials) ||
+          JSON.stringify((state as any).jobMaterials) !== JSON.stringify((prevState as any).jobMaterials) ||
+          JSON.stringify((state as any).stockAdjustments) !== JSON.stringify((prevState as any).stockAdjustments)) {
         lastPushRef.current = now;
         pushToServer();
       }

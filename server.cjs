@@ -60,6 +60,14 @@ function syncToGoogleSheet() {
     sheetsData['BatchLedger'] = { headers: blHeaders, rows: persistedData.batchLedger || [] };
     var jobHeaders = ['id','jobNumber','jobName','description','status','startDate','endDate','createdAt','updatedAt'];
     sheetsData['Jobs'] = { headers: jobHeaders, rows: persistedData.jobs || [] };
+    var qmHeaders = ['id','code','itemName','description','category','unit','reason','source','receivedDate','quarantineDate','releaseDate','quantityIn','quantityOut','balance','location','status','inspector','inspectionResult','issuedTo','issuedDate','remarks','createdBy','createdAt','updatedAt'];
+    sheetsData['QuarantineMaterials'] = { headers: qmHeaders, rows: persistedData.quarantineMaterials || [] };
+    var cmHeaders = ['id','code','itemName','description','category','unit','clientName','projectNumber','receivedDate','expectedReturnDate','quantityIn','quantityOut','balance','location','status','issuedTo','issuedDate','remarks','createdBy','createdAt','updatedAt'];
+    sheetsData['ClientMaterials'] = { headers: cmHeaders, rows: persistedData.clientMaterials || [] };
+    var jmHeaders = ['id','code','itemName','category','quantity','jobNumber','jobName','status','issuedTo','issuedDate','remarks','createdBy','createdAt','updatedAt'];
+    sheetsData['JobMaterials'] = { headers: jmHeaders, rows: persistedData.jobMaterials || [] };
+    var ibHeaders = ['id','itemId','itemCode','itemName','totalQuantity','availableQuantity','reservedQuantity','lastUpdated'];
+    sheetsData['InventoryBalances'] = { headers: ibHeaders, rows: persistedData.inventoryBalances || [] };
 
     var payload = JSON.stringify({ action: 'saveAll', sheets: sheetsData });
     var url = GOOGLE_SHEET_URL;
@@ -135,6 +143,22 @@ function pullFromGoogleSheet(callback) {
       }
       if (data.Users && data.Users.length > 0) {
         persistedData.users = data.Users;
+        changed = true;
+      }
+      if (data.QuarantineMaterials) {
+        persistedData.quarantineMaterials = data.QuarantineMaterials;
+        changed = true;
+      }
+      if (data.ClientMaterials) {
+        persistedData.clientMaterials = data.ClientMaterials;
+        changed = true;
+      }
+      if (data.JobMaterials) {
+        persistedData.jobMaterials = data.JobMaterials;
+        changed = true;
+      }
+      if (data.PendingRequests) {
+        persistedData.pendingRequests = data.PendingRequests;
         changed = true;
       }
       if (changed) {
@@ -343,6 +367,9 @@ app.get('/api/full-sync', authMiddleware, function(req, res) {
     users: persistedData.users || [],
     stockAdjustments: persistedData.stockAdjustments || [],
     auditTrail: persistedData.auditTrail || [],
+    quarantineMaterials: persistedData.quarantineMaterials || [],
+    clientMaterials: persistedData.clientMaterials || [],
+    jobMaterials: persistedData.jobMaterials || [],
     alertEmail: persistedData.alertEmail || '',
     batchSequence: persistedData.batchSequence || 1,
     grnSequence: persistedData.grnSequence || 1,
@@ -427,6 +454,9 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   persistedData.users = body.users || [];
   persistedData.stockAdjustments = body.stockAdjustments || [];
   persistedData.auditTrail = body.auditTrail || [];
+  persistedData.quarantineMaterials = body.quarantineMaterials || [];
+  persistedData.clientMaterials = body.clientMaterials || [];
+  persistedData.jobMaterials = body.jobMaterials || [];
   persistedData.alertEmail = body.alertEmail || '';
   persistedData.batchSequence = body.batchSequence || 1;
   persistedData.grnSequence = body.grnSequence || 1;
