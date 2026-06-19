@@ -488,10 +488,10 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
 });
 
 app.get('/api/public/stock-data', function(req, res) {
-  var storedItems = persistedData.masterItems || [];
-  var storedEmps = persistedData.employees || [];
-  var storedJobs = persistedData.jobs || [];
-  var storedBatches = persistedData.batchLedger || [];
+  var storedItems = (persistedData.masterItems || []).filter(Boolean);
+  var storedEmps = (persistedData.employees || []).filter(Boolean);
+  var storedJobs = (persistedData.jobs || []).filter(Boolean);
+  var storedBatches = (persistedData.batchLedger || []).filter(Boolean);
 
   var items = storedItems.filter(function(i) { return i.status === 'Active'; }).map(function(item) {
     var balance = storedBatches.filter(function(b) { return b.itemId === item.id; }).reduce(function(s, b) { return s + b.balance; }, 0);
