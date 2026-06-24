@@ -18,9 +18,7 @@ const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_URL || 'https://script.google.
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin || origin === 'null') return callback(null, true);
-    var allowed = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'];
-    if (allowed.indexOf(origin) !== -1) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
+    callback(null, true);
   },
   credentials: true,
 }));
