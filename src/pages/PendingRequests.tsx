@@ -91,6 +91,7 @@ export default function FormRequestsSheet() {
           performedBy: req.approvedBy || 'System',
         });
       }
+      await new Promise(r => setTimeout(r, 200));
     } catch (err) {
       alert('Network error. Please try again.');
     }

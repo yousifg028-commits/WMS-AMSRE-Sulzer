@@ -20,16 +20,12 @@ export class GoogleSheetsSync {
 
     const res = await fetch(this.baseUrl, {
       method: 'POST',
-      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(body),
     });
 
-    try {
-      return await res.json();
-    } catch {
-      return { error: 'No response from Google Sheets' };
-    }
+    if (!res.ok) throw new Error('Google Sheets request failed: ' + res.status);
+    return res.json();
   }
 
   private async doGet(action: string, sheet?: string): Promise<any> {

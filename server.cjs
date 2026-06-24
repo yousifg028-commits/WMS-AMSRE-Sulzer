@@ -8,20 +8,53 @@ const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
 const nodemailer = require('nodemailer');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'wms-data.json');
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: function(origin, callback) {
+    if (!origin || origin === 'null') return callback(null, true);
+    var allowed = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'];
+    if (allowed.indexOf(origin) !== -1) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
+app.use(express.json({ limit: '50mb' }));
+
+var sseClients = [];
+var sseClientIdCounter = 0;
+
+function notifySSE() {
+  for (var i = sseClients.length - 1; i >= 0; i--) {
+    try {
+      sseClients[i].res.write('data: sync\n\n');
+    } catch (e) {
+      sseClients.splice(i, 1);
+    }
+  }
+}
 
 function loadData() {
   try {
     if (fs.existsSync(DATA_FILE)) {
-      return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+      var raw = fs.readFileSync(DATA_FILE, 'utf8');
+      var parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
     }
-  } catch {}
+  } catch (e) {
+    console.error('loadData parse error:', e.message);
+    try {
+      if (fs.existsSync(DATA_FILE)) {
+        var backupPath = DATA_FILE + '.bak.' + Date.now();
+        fs.copyFileSync(DATA_FILE, backupPath);
+        console.log('Corrupted data backed up to:', backupPath);
+      }
+    } catch (backupErr) { console.error('Backup failed:', backupErr.message); }
+  }
   return null;
 }
 
@@ -37,13 +70,24 @@ function saveData(extra) {
     persistedData.stockOutSequence = stockOutSequence;
     persistedData.requestSequence = requestSequence;
     fs.writeFileSync(DATA_FILE, JSON.stringify(persistedData, null, 2));
+    notifySSE();
   } catch(e) { console.error('saveData error:', e.message); }
 }
 
 var persistedData = loadData() || { extraUsers: [] };
 
+var extraUsers = persistedData.extraUsers || [];
+var publicItems = persistedData.publicItems || [];
+var publicEmployees = persistedData.publicEmployees || [];
+var publicJobs = persistedData.publicJobs || [];
+var pendingRequests = persistedData.pendingRequests || [];
+var requestSequence = persistedData.requestSequence || 1000;
+var serverStockOutRecords = persistedData.serverStockOutRecords || [];
+var stockOutSequence = persistedData.stockOutSequence || 0;
+
 let emailTransporter = null;
-let alertEmailAddress = '';
+let alertEmailAddress = persistedData.alertEmailAddress || '';
+let savedEmailPassword = persistedData.alertEmailPassword || '';
 
 function setupEmailTransporter(email, appPassword) {
   emailTransporter = nodemailer.createTransport({
@@ -51,6 +95,16 @@ function setupEmailTransporter(email, appPassword) {
     auth: { user: email, pass: appPassword },
   });
   alertEmailAddress = email;
+  savedEmailPassword = appPassword;
+  persistedData.alertEmailAddress = email;
+  persistedData.alertEmailPassword = appPassword;
+  saveData();
+}
+
+if (alertEmailAddress && savedEmailPassword) {
+  try {
+    setupEmailTransporter(alertEmailAddress, savedEmailPassword);
+  } catch (e) { console.error('Failed to restore email config:', e.message); }
 }
 
 const users = [
@@ -64,14 +118,38 @@ const users = [
 
 const sessions = {};
 
+const SESSION_TTL = 8 * 60 * 60 * 1000;
+
+const loginAttempts = {};
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_TIME = 15 * 60 * 1000;
+
+setInterval(function() {
+  var now = Date.now();
+  for (var token in sessions) {
+    if (now - sessions[token].createdAt > SESSION_TTL) delete sessions[token];
+  }
+  for (var key in loginAttempts) {
+    if (now - loginAttempts[key].lastAttempt > LOCKOUT_TIME * 2) delete loginAttempts[key];
+  }
+}, 60 * 60 * 1000);
+
 function hashPassword(pw) {
-  return crypto.createHash('sha256').update(pw).digest('hex');
+  return bcrypt.hashSync(pw, 10);
+}
+
+function verifyPassword(pw, hash) {
+  return bcrypt.compareSync(pw, hash);
 }
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization && req.headers.authorization.replace('Bearer ', '');
   if (!token || !sessions[token]) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (Date.now() - sessions[token].createdAt > SESSION_TTL) {
+    delete sessions[token];
+    return res.status(401).json({ error: 'Session expired' });
   }
   req.user = sessions[token];
   next();
@@ -81,6 +159,25 @@ app.post('/api/logout', authMiddleware, function(req, res) {
   const token = req.headers.authorization.replace('Bearer ', '');
   delete sessions[token];
   res.json({ ok: true });
+});
+
+app.get('/api/sse', function(req, res) {
+  var token = req.query.token;
+  if (!token || !sessions[token]) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write('data: connected\n\n');
+  var clientId = ++sseClientIdCounter;
+  sseClients.push({ id: clientId, res: res });
+  req.on('close', function() {
+    sseClients = sseClients.filter(function(c) { return c.id !== clientId; });
+  });
 });
 
 app.get('/api/me', authMiddleware, function(req, res) {
@@ -95,12 +192,14 @@ app.get('/api/users', authMiddleware, function(req, res) {
 app.post('/api/users', authMiddleware, function(req, res) {
   if (req.user.role !== 'Administrator') return res.status(403).json({ error: 'Forbidden' });
   var body = req.body;
-  if (users.find(function(u) { return u.username === body.username; })) return res.status(400).json({ error: 'Username exists' });
-  if (extraUsers.find(function(u) { return u.username === body.username; })) return res.status(400).json({ error: 'Username exists' });
-  var newUser = { id: String(Date.now()), username: body.username, password: hashPassword(body.password || body.username), role: body.role, fullName: body.fullName || body.username };
+  var username = String(body.username || '').trim();
+  if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) return res.status(400).json({ error: 'Username must be 3-30 alphanumeric/underscore characters' });
+  if (users.find(function(u) { return u.username === username; })) return res.status(400).json({ error: 'Username exists' });
+  if (extraUsers.find(function(u) { return u.username === username; })) return res.status(400).json({ error: 'Username exists' });
+  var newUser = { id: String(Date.now()), username: username, password: hashPassword(body.password || username), role: body.role, fullName: String(body.fullName || username).slice(0, 100) };
   extraUsers.push(newUser);
   saveData();
-  res.json({ id: newUser.id, username: body.username, role: body.role, fullName: newUser.fullName });
+  res.json({ id: newUser.id, username: username, role: body.role, fullName: newUser.fullName });
 });
 
 app.put('/api/users/:id', authMiddleware, function(req, res) {
@@ -109,17 +208,12 @@ app.put('/api/users/:id', authMiddleware, function(req, res) {
   var body = req.body;
   var idx = users.findIndex(function(u) { return u.id === id; });
   var eidx = extraUsers.findIndex(function(u) { return u.id === id; });
-  if (idx !== -1) {
-    if (body.username) users[idx].username = body.username;
-    if (body.password) users[idx].password = hashPassword(body.password);
-    if (body.role) users[idx].role = body.role;
-    if (body.fullName) users[idx].fullName = body.fullName;
-  }
+  if (idx !== -1) return res.status(400).json({ error: 'Cannot modify built-in users' });
   if (eidx !== -1) {
-    if (body.username) extraUsers[eidx].username = body.username;
+    if (body.username) extraUsers[eidx].username = String(body.username).trim().slice(0, 30);
     if (body.password) extraUsers[eidx].password = hashPassword(body.password);
     if (body.role) extraUsers[eidx].role = body.role;
-    if (body.fullName) extraUsers[eidx].fullName = body.fullName;
+    if (body.fullName) extraUsers[eidx].fullName = String(body.fullName).slice(0, 100);
   }
   if (idx === -1 && eidx === -1) return res.status(404).json({ error: 'User not found' });
   saveData();
@@ -130,10 +224,10 @@ app.delete('/api/users/:id', authMiddleware, function(req, res) {
   if (req.user.role !== 'Administrator') return res.status(403).json({ error: 'Forbidden' });
   var id = req.params.id;
   var idx = users.findIndex(function(u) { return u.id === id; });
-  if (idx === -1) { var eidx = extraUsers.findIndex(function(u) { return u.id === id; }); if (eidx !== -1) { extraUsers.splice(eidx, 1); saveData(); } return res.status(404).json({ error: 'User not found' }); }
-  users.splice(idx, 1);
-  var eidx2 = extraUsers.findIndex(function(u) { return u.id === id; });
-  if (eidx2 !== -1) extraUsers.splice(eidx2, 1);
+  var eidx = extraUsers.findIndex(function(u) { return u.id === id; });
+  if (idx !== -1) return res.status(400).json({ error: 'Cannot delete built-in users' });
+  if (eidx === -1) return res.status(404).json({ error: 'User not found' });
+  extraUsers.splice(eidx, 1);
   saveData();
   res.json({ ok: true });
 });
@@ -196,14 +290,6 @@ app.get('/api/email-status', authMiddleware, function(req, res) {
   res.json({ configured: !!emailTransporter, email: alertEmailAddress || '' });
 });
 
-var publicItems = persistedData.publicItems || [];
-var publicEmployees = persistedData.publicEmployees || [];
-var publicJobs = persistedData.publicJobs || [];
-var pendingRequests = persistedData.pendingRequests || [];
-var requestSequence = persistedData.requestSequence || 1000;
-var serverStockOutRecords = persistedData.serverStockOutRecords || [];
-var stockOutSequence = persistedData.stockOutSequence || 0;
-
 app.post('/api/public/sync-data', authMiddleware, function(req, res) {
   var body = req.body;
   publicItems = (body.items || []).map(function(item) {
@@ -223,22 +309,27 @@ app.post('/api/public/sync-data', authMiddleware, function(req, res) {
 
 // Full sync - GET: server sends ALL data to client
 app.get('/api/full-sync', authMiddleware, function(req, res) {
+  var deletedSet = new Set(persistedData.deletedIds || []);
+  function filterDeleted(arr) {
+    return (arr || []).filter(function(item) { return !deletedSet.has(item.id); });
+  }
   res.json({
-    masterItems: persistedData.masterItems || [],
-    employees: persistedData.employees || [],
-    stockInRecords: persistedData.stockInRecords || [],
-    stockOutRecords: persistedData.stockOutRecords || [],
-    batchLedger: persistedData.batchLedger || [],
-    inventoryBalances: persistedData.inventoryBalances || [],
-    jobs: persistedData.jobs || [],
+    masterItems: filterDeleted(persistedData.masterItems),
+    employees: filterDeleted(persistedData.employees),
+    stockInRecords: filterDeleted(persistedData.stockInRecords),
+    stockOutRecords: filterDeleted(persistedData.stockOutRecords),
+    batchLedger: filterDeleted(persistedData.batchLedger),
+    inventoryBalances: filterDeleted(persistedData.inventoryBalances),
+    jobs: filterDeleted(persistedData.jobs),
     users: persistedData.users || [],
-    stockAdjustments: persistedData.stockAdjustments || [],
+    stockAdjustments: filterDeleted(persistedData.stockAdjustments),
     auditTrail: persistedData.auditTrail || [],
     alertEmail: persistedData.alertEmail || '',
     batchSequence: persistedData.batchSequence || 1,
     grnSequence: persistedData.grnSequence || 1,
     issueSequence: persistedData.issueSequence || 1,
     adjustmentSequence: persistedData.adjustmentSequence || 1,
+    deletedIds: persistedData.deletedIds || [],
     publicEmployees: persistedData.publicEmployees || [],
     extraUsers: persistedData.extraUsers || [],
   });
@@ -247,23 +338,71 @@ app.get('/api/full-sync', authMiddleware, function(req, res) {
 // Full sync - POST: client sends ALL data to server
 app.post('/api/full-sync', authMiddleware, function(req, res) {
   var body = req.body;
-  persistedData.masterItems = body.masterItems || [];
-  persistedData.employees = body.employees || [];
-  persistedData.stockInRecords = body.stockInRecords || [];
-  persistedData.stockOutRecords = body.stockOutRecords || [];
-  persistedData.batchLedger = body.batchLedger || [];
-  persistedData.inventoryBalances = body.inventoryBalances || [];
-  persistedData.jobs = body.jobs || [];
+  var clientDeleted = body.deletedIds || [];
+  var serverDeleted = persistedData.deletedIds || [];
+  var mergedDeleted = Array.from(new Set(serverDeleted.concat(clientDeleted)));
+
+  function filterDeleted(arr) {
+    return (arr || []).filter(function(item) { return mergedDeleted.indexOf(item.id) === -1; });
+  }
+
+  function mergeById(serverArr, clientArr) {
+    var map = {};
+    (serverArr || []).forEach(function(item) {
+      if (mergedDeleted.indexOf(item.id) === -1) map[item.id] = item;
+    });
+    (clientArr || []).forEach(function(item) {
+      if (mergedDeleted.indexOf(item.id) !== -1) return;
+      var existing = map[item.id];
+      if (!existing) {
+        map[item.id] = item;
+      } else if (item.updatedAt && existing.updatedAt && item.updatedAt > existing.updatedAt) {
+        map[item.id] = item;
+      }
+    });
+    return Object.values(map);
+  }
+
+  function mergeByField(serverArr, clientArr, field) {
+    var map = {};
+    (serverArr || []).forEach(function(item) {
+      if (mergedDeleted.indexOf(item.id) === -1) map[item[field]] = item;
+    });
+    (clientArr || []).forEach(function(item) {
+      if (mergedDeleted.indexOf(item.id) !== -1) return;
+      var key = item[field];
+      var existing = map[key];
+      if (!existing) {
+        map[key] = item;
+      } else if (item.createdAt && existing.createdAt && item.createdAt > existing.createdAt) {
+        map[key] = item;
+      }
+    });
+    return Object.values(map);
+  }
+
+  persistedData.masterItems = mergeById(persistedData.masterItems, body.masterItems);
+  persistedData.employees = mergeById(persistedData.employees, body.employees);
+  persistedData.stockInRecords = mergeByField(persistedData.stockInRecords, body.stockInRecords, 'grnNumber');
+  persistedData.stockOutRecords = mergeByField(persistedData.stockOutRecords, body.stockOutRecords, 'issueNumber');
+  persistedData.batchLedger = mergeByField(persistedData.batchLedger, body.batchLedger, 'batchId');
+  persistedData.inventoryBalances = mergeById(persistedData.inventoryBalances, body.inventoryBalances);
+  persistedData.jobs = mergeById(persistedData.jobs, body.jobs);
   persistedData.users = body.users || [];
-  persistedData.stockAdjustments = body.stockAdjustments || [];
+  persistedData.stockAdjustments = mergeByField(persistedData.stockAdjustments, body.stockAdjustments, 'adjustmentNumber');
   persistedData.auditTrail = body.auditTrail || [];
   persistedData.alertEmail = body.alertEmail || '';
-  persistedData.batchSequence = body.batchSequence || 1;
-  persistedData.grnSequence = body.grnSequence || 1;
-  persistedData.issueSequence = body.issueSequence || 1;
-  persistedData.adjustmentSequence = body.adjustmentSequence || 1;
-  persistedData.extraUsers = body.extraUsers || [];
-  persistedData.publicEmployees = body.publicEmployees || [];
+  persistedData.batchSequence = Math.max(persistedData.batchSequence || 1, body.batchSequence || 1);
+  persistedData.grnSequence = Math.max(persistedData.grnSequence || 1, body.grnSequence || 1);
+  persistedData.issueSequence = Math.max(persistedData.issueSequence || 1, body.issueSequence || 1);
+  persistedData.adjustmentSequence = Math.max(persistedData.adjustmentSequence || 1, body.adjustmentSequence || 1);
+  persistedData.deletedIds = mergedDeleted;
+  var clientUsers = body.extraUsers || [];
+  var serverUserMap = {};
+  extraUsers.forEach(function(u) { serverUserMap[u.id] = u; });
+  clientUsers.forEach(function(u) { if (!serverUserMap[u.id]) serverUserMap[u.id] = u; });
+  extraUsers = Object.values(serverUserMap);
+  persistedData.extraUsers = extraUsers;
   saveData();
   res.json({ ok: true });
 });
@@ -292,8 +431,6 @@ app.get('/api/public/stock-data', function(req, res) {
   res.json({ items: items, employees: emps, jobs: jobs });
 });
 
-var extraUsers = persistedData.extraUsers || [];
-
 app.post('/api/public/sync-users', authMiddleware, function(req, res) {
   var body = req.body;
   extraUsers = (body.users || []).map(function(u) {
@@ -312,21 +449,40 @@ app.post('/api/public/sync-users', authMiddleware, function(req, res) {
 app.post('/api/login', function(req, res) {
   var username = req.body.username;
   var password = req.body.password;
-  var user = users.find(function(u) { return u.username === username && u.password === hashPassword(password); });
-  if (!user) {
-    user = extraUsers.find(function(u) { return u.username === username && u.password && u.password === hashPassword(password); });
-  }
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  var clientIP = req.ip || req.connection.remoteAddress || 'unknown';
 
+  var attemptKey = username + ':' + clientIP;
+  var attempt = loginAttempts[attemptKey];
+  if (attempt && attempt.count >= MAX_ATTEMPTS && Date.now() - attempt.lastAttempt < LOCKOUT_TIME) {
+    var waitMin = Math.ceil((LOCKOUT_TIME - (Date.now() - attempt.lastAttempt)) / 60000);
+    return res.status(429).json({ error: 'Too many attempts. Try again in ' + waitMin + ' minutes.' });
+  }
+
+  var user = users.find(function(u) { return u.username === username && verifyPassword(password, u.password); });
+  if (!user) {
+    user = extraUsers.find(function(u) { return u.username === username && u.password && verifyPassword(password, u.password); });
+  }
+  if (!user) {
+    if (!loginAttempts[attemptKey]) loginAttempts[attemptKey] = { count: 0, lastAttempt: 0 };
+    loginAttempts[attemptKey].count++;
+    loginAttempts[attemptKey].lastAttempt = Date.now();
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  delete loginAttempts[attemptKey];
   var token = crypto.randomBytes(32).toString('hex');
-  sessions[token] = { id: user.id, username: user.username, role: user.role, fullName: user.fullName };
+  sessions[token] = { id: user.id, username: user.username, role: user.role, fullName: user.fullName, createdAt: Date.now() };
 
   res.json({ token: token, user: { id: user.id, username: user.username, role: user.role, fullName: user.fullName } });
 });
 
+var publicStockOutLock = false;
 app.post('/api/public/stock-out', function(req, res) {
+  if (publicStockOutLock) return res.status(429).json({ error: 'Server busy, try again' });
+  publicStockOutLock = true;
   var body = req.body;
   if (!body.employeeName || !body.itemId || !body.quantity) {
+    publicStockOutLock = false;
     return res.status(400).json({ error: 'All required fields must be filled' });
   }
 
@@ -335,15 +491,15 @@ app.post('/api/public/stock-out', function(req, res) {
 
   var item = storedItems.find(function(i) { return i.id === body.itemId; });
   if (!item) item = publicItems.find(function(i) { return i.id === body.itemId; });
-  if (!item) return res.status(400).json({ error: 'Item not found' });
-  if (body.quantity <= 0) return res.status(400).json({ error: 'Quantity must be greater than 0' });
+  if (!item) { publicStockOutLock = false; return res.status(400).json({ error: 'Item not found' }); }
+  if (body.quantity <= 0) { publicStockOutLock = false; return res.status(400).json({ error: 'Quantity must be greater than 0' }); }
 
   var availableQty = storedBatches.filter(function(b) { return b.itemId === item.id; }).reduce(function(s, b) { return s + b.balance; }, 0);
   if (availableQty === 0) {
     var fallback = publicItems.find(function(i) { return i.id === body.itemId; });
     if (fallback) availableQty = fallback.availableQty;
   }
-  if (body.quantity > availableQty) return res.status(400).json({ error: 'Insufficient stock. Available: ' + availableQty });
+  if (body.quantity > availableQty) { publicStockOutLock = false; return res.status(400).json({ error: 'Insufficient stock. Available: ' + availableQty }); }
 
   requestSequence++;
   var request = {
@@ -364,11 +520,12 @@ app.post('/api/public/stock-out', function(req, res) {
   };
   pendingRequests.push(request);
   saveData();
+  publicStockOutLock = false;
   console.log('New stock out request: ' + request.requestNumber + ' from ' + body.employeeName + ' for ' + item.itemName);
   res.json({ ok: true, requestNumber: request.requestNumber });
 });
 
-app.get('/api/pending-requests', function(req, res) {
+app.get('/api/pending-requests', authMiddleware, function(req, res) {
   res.json(pendingRequests);
 });
 
@@ -424,6 +581,22 @@ app.post('/api/pending-requests/:id/approve', authMiddleware, function(req, res)
   var pItem = publicItems.find(function(i) { return i.id === approvedReq.itemId || i.itemCode === approvedReq.itemCode; });
   if (pItem) {
     pItem.availableQty = Math.max(0, pItem.availableQty - approvedReq.quantity);
+  }
+  var batches = (persistedData.batchLedger || []).filter(function(b) { return b.itemId === approvedReq.itemId && b.balance > 0; });
+  var remaining = approvedReq.quantity;
+  for (var bi = 0; bi < batches.length && remaining > 0; bi++) {
+    var batch = batches[bi];
+    var deduct = Math.min(batch.balance, remaining);
+    batch.quantityOut = (batch.quantityOut || 0) + deduct;
+    batch.balance = batch.balance - deduct;
+    batch.updatedAt = new Date().toISOString();
+    remaining -= deduct;
+  }
+  var inv = (persistedData.inventoryBalances || []).find(function(b) { return b.itemId === approvedReq.itemId; });
+  if (inv) {
+    inv.totalQuantity = Math.max(0, inv.totalQuantity - approvedReq.quantity);
+    inv.availableQuantity = Math.max(0, inv.availableQuantity - approvedReq.quantity);
+    inv.lastUpdated = new Date().toISOString();
   }
   stockOutSequence++;
   var issueNumber = 'ISU-' + String(stockOutSequence).padStart(4, '0');

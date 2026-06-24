@@ -34,33 +34,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       localStorage.setItem('wms_user', JSON.stringify(data.user));
       onLogin(data.token, data.user);
     } catch {
-      // Fallback for dev mode (no server)
-      const devUsers: Record<string, { id: string; role: string; fullName: string }> = {
-        yousif: { id: '0', role: 'Administrator', fullName: 'Yousif' },
-        admin: { id: '1', role: 'Administrator', fullName: 'System Admin' },
-        manager: { id: '2', role: 'Warehouse Manager', fullName: 'Warehouse Manager' },
-        supervisor: { id: '3', role: 'Warehouse Supervisor', fullName: 'Warehouse Supervisor' },
-        storekeeper: { id: '4', role: 'Storekeeper', fullName: 'Store Keeper' },
-        viewer: { id: '5', role: 'Viewer', fullName: 'Read Only User' },
-      };
-      const devPasswords: Record<string, string> = {
-        yousif: '98765',
-        admin: 'admin123',
-        manager: 'manager123',
-        supervisor: 'super123',
-        storekeeper: 'store123',
-        viewer: 'view123',
-      };
-
-      if (devUsers[username] && devPasswords[username] === password) {
-        const token = 'dev-token-' + Date.now();
-        const user = { username, ...devUsers[username] };
-        localStorage.setItem('wms_token', token);
-        localStorage.setItem('wms_user', JSON.stringify(user));
-        onLogin(token, user);
-      } else {
-        setError('Invalid username or password');
-      }
+      setError('Cannot connect to server. Please try again.');
       setLoading(false);
     }
   };

@@ -6,7 +6,6 @@ import { GoogleSheetsSync } from '../utils/googleSheetsSync';
 export default function SettingsPage() {
   const { alertEmail, setAlertEmail } = useWMSStore();
   const [settings, setSettings] = useState(() => {
-    const saved = localStorage.getItem('wms_settings');
     const defaults = {
       companyName: 'AMSER - Sulzer',
       warehouseName: 'Main Warehouse',
@@ -20,9 +19,14 @@ export default function SettingsPage() {
       dateFormat: 'dd/MM/yyyy',
       timezone: 'UTC',
       maxSearchResults: 100,
-      googleSheetsUrl: localStorage.getItem('wms_google_sheets_url') || '',
+      googleSheetsUrl: '',
     };
-    return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+    try {
+      const saved = localStorage.getItem('wms_settings');
+      const gsUrl = localStorage.getItem('wms_google_sheets_url');
+      if (gsUrl) defaults.googleSheetsUrl = gsUrl;
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
+    } catch { return defaults; }
   });
 
   const [emailConfig, setEmailConfig] = useState({

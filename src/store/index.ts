@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type {
   MasterItem, Employee, StockInRecord, BatchLedgerEntry,
   StockOutRecord, InventoryBalance, StockAdjustment,
@@ -8,6 +8,39 @@ import type {
 import { generateId, generateBatchId, generateGRN, generateIssueNumber, generateAdjustmentNumber } from '../utils/helpers';
 import { allocateFEFO } from '../utils/fefo';
 import { allocateFIFO } from '../utils/fifo';
+
+const safeStorage: Storage = {
+  getItem: (name: string) => {
+    try { return localStorage.getItem(name); } catch { return null; }
+  },
+  setItem: (name: string, value: string) => {
+    try { localStorage.setItem(name, value); } catch {
+      try {
+        const state = JSON.parse(value);
+        if (state?.state) {
+          if (state.state.auditTrail?.length > 100) {
+            state.state.auditTrail = state.state.auditTrail.slice(-50);
+          }
+          if (state.state.stockAlerts?.length > 50) {
+            state.state.stockAlerts = state.state.stockAlerts.slice(-20);
+          }
+          try {
+            localStorage.setItem(name, JSON.stringify(state));
+            return;
+          } catch {}
+        }
+        localStorage.removeItem(name);
+        alert('Storage full — old data was trimmed to free space. Please export your data as backup.');
+      } catch {}
+    }
+  },
+  removeItem: (name: string) => {
+    try { localStorage.removeItem(name); } catch {}
+  },
+  clear: () => { try { localStorage.clear(); } catch {} },
+  get length() { try { return localStorage.length; } catch { return 0; } },
+  key: (index: number) => { try { return localStorage.key(index); } catch { return null; } },
+};
 
 interface WMSState {
   masterItems: MasterItem[];
@@ -30,6 +63,8 @@ interface WMSState {
   issueSequence: number;
   adjustmentSequence: number;
 
+  deletedIds: string[];
+
   addItem: (item: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateItem: (id: string, updates: Partial<MasterItem>) => void;
   archiveItem: (id: string) => void;
@@ -38,6 +73,7 @@ interface WMSState {
 
   addEmployee: (emp: Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateEmployee: (id: string, updates: Partial<Employee>) => void;
+  deleteEmployee: (id: string) => void;
 
   createStockIn: (record: Omit<StockInRecord, 'id' | 'grnNumber' | 'batchId' | 'createdAt'>) => string;
   deleteStockIn: (id: string) => void;
@@ -188,7 +224,7 @@ function logAudit(state: WMSState, action: string, module: string, recordId: str
     afterValue: after ? JSON.stringify(after, null, 2) : '',
     performedBy: state.currentUser.username,
     performedAt: new Date().toISOString(),
-    ipAddress: '192.168.3.112',
+    ipAddress: 'localhost',
   };
 }
 
@@ -198,7 +234,17 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   stockInRecords: mockStockInRecords,
   batchLedger: mockBatchLedger,
   stockOutRecords: mockStockOutRecords,
-  inventoryBalances: [],
+  inventoryBalances: (() => {
+    const balances: Record<string, { id: string; itemId: string; itemCode: string; itemName: string; totalQuantity: number; availableQuantity: number; reservedQuantity: number; lastUpdated: string }> = {};
+    for (const b of mockBatchLedger) {
+      if (!balances[b.itemId]) {
+        balances[b.itemId] = { id: generateId(), itemId: b.itemId, itemCode: b.itemCode, itemName: b.itemName, totalQuantity: 0, availableQuantity: 0, reservedQuantity: 0, lastUpdated: b.updatedAt };
+      }
+      balances[b.itemId].totalQuantity += b.balance;
+      balances[b.itemId].availableQuantity += b.balance;
+    }
+    return Object.values(balances);
+  })(),
   stockAdjustments: [],
   expiryAlerts: [],
   auditTrail: [],
@@ -211,6 +257,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   grnSequence: 9,
   issueSequence: 11,
   adjustmentSequence: 1,
+  deletedIds: [],
 
   addItem: (item) => set((state) => {
     const now = new Date().toISOString();
@@ -251,6 +298,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     const audit = logAudit(state, 'Delete Item', 'Master Items', id, old, null);
     return {
       masterItems: state.masterItems.filter(item => item.id !== id),
+      deletedIds: [...state.deletedIds, id],
       auditTrail: [...state.auditTrail, audit],
     };
   }),
@@ -267,6 +315,16 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     const audit = logAudit(state, 'Update Employee', 'Employees', id, old, { ...old, ...updates });
     return {
       employees: state.employees.map(emp => emp.id === id ? { ...emp, ...updates, updatedAt: new Date().toISOString() } : emp),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  deleteEmployee: (id) => set((state) => {
+    const record = state.employees.find(e => e.id === id);
+    const audit = logAudit(state, 'Delete Employee', 'Employees', id, record, null);
+    return {
+      employees: state.employees.filter(e => e.id !== id),
+      deletedIds: [...state.deletedIds, id],
       auditTrail: [...state.auditTrail, audit],
     };
   }),
@@ -304,17 +362,24 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   deleteStockIn: (id) => set((state) => {
     const record = state.stockInRecords.find(r => r.id === id);
     if (!record) return state;
+    const dependentStockOuts = state.stockOutRecords.filter(r => r.batchId === record.batchId);
+    if (dependentStockOuts.length > 0) {
+      alert('Cannot delete: ' + dependentStockOuts.length + ' stock-out record(s) reference this batch. Delete them first.');
+      return state;
+    }
     const audit = logAudit(state, 'Delete Stock In', 'Stock In', record.grnNumber, record, null);
     const batch = state.batchLedger.find(b => b.batchId === record.batchId);
     const qty = batch ? batch.balance : record.quantity;
+    const now = new Date().toISOString();
     return {
       stockInRecords: state.stockInRecords.filter(r => r.id !== id),
       batchLedger: state.batchLedger.filter(b => b.batchId !== record.batchId),
+      deletedIds: [...state.deletedIds, id, record.batchId],
       inventoryBalances: state.inventoryBalances.map(b =>
         b.itemId === record.itemId
-          ? { ...b, totalQuantity: b.totalQuantity - qty, availableQuantity: b.availableQuantity - qty, lastUpdated: new Date().toISOString() }
+          ? { ...b, totalQuantity: Math.max(0, b.totalQuantity - qty), availableQuantity: Math.max(0, b.availableQuantity - qty), lastUpdated: now }
           : b
-      ),
+      ).filter(b => b.totalQuantity > 0),
       auditTrail: [...state.auditTrail, audit],
     };
   }),
@@ -323,8 +388,20 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     const old = state.stockInRecords.find(r => r.id === id);
     if (!old) return state;
     const audit = logAudit(state, 'Update Stock In', 'Stock In', old.grnNumber, old, { ...old, ...updates });
+    const qtyDiff = (updates.quantity ?? old.quantity) - old.quantity;
+    const now = new Date().toISOString();
     return {
       stockInRecords: state.stockInRecords.map(r => r.id === id ? { ...r, ...updates } : r),
+      batchLedger: state.batchLedger.map(b =>
+        b.batchId === old.batchId
+          ? { ...b, quantityIn: b.quantityIn + qtyDiff, balance: b.balance + qtyDiff, updatedAt: now }
+          : b
+      ),
+      inventoryBalances: qtyDiff !== 0 ? state.inventoryBalances.map(b =>
+        b.itemId === old.itemId
+          ? { ...b, totalQuantity: Math.max(0, b.totalQuantity + qtyDiff), availableQuantity: Math.max(0, b.availableQuantity + qtyDiff), lastUpdated: now }
+          : b
+      ) : state.inventoryBalances,
       auditTrail: [...state.auditTrail, audit],
     };
   }),
@@ -344,7 +421,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     } else {
       allocations = allocateFIFO(state.batchLedger.filter(b => b.itemId === record.itemId), record.quantity);
     }
-    if (!allocations) return null;
+    if (!allocations || allocations.length === 0) return null;
 
     let updatedBatches = [...state.batchLedger];
     for (const alloc of allocations) {
@@ -385,11 +462,16 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     });
 
     if (newAlerts.length > 0 && state.alertEmail) {
-      fetch('/api/send-alert-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: state.alertEmail, alerts: newAlerts }),
-      }).catch(() => {});
+      const sendEmail = (retries: number) => {
+        fetch('/api/send-alert-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: state.alertEmail, alerts: newAlerts }),
+        }).catch(() => {
+          if (retries > 0) setTimeout(() => sendEmail(retries - 1), 5000);
+        });
+      };
+      sendEmail(2);
     }
 
     set({
@@ -397,7 +479,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
       batchLedger: updatedBatches,
       inventoryBalances: state.inventoryBalances.map(b =>
         b.itemId === record.itemId ? { ...b, totalQuantity: b.totalQuantity - record.quantity, availableQuantity: b.availableQuantity - record.quantity, lastUpdated: now } : b
-      ),
+      ).filter(b => b.totalQuantity > 0),
       stockAlerts: [...newAlerts, ...state.stockAlerts],
       issueSequence: state.issueSequence + 1,
       auditTrail: [...state.auditTrail, audit],
@@ -408,14 +490,16 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   deleteStockOut: (id) => set((state) => {
     const record = state.stockOutRecords.find(r => r.id === id);
     if (!record) return state;
+    const batchExists = state.batchLedger.some(b => b.batchId === record.batchId);
     const audit = logAudit(state, 'Delete Stock Out', 'Stock Out', record.issueNumber, record, null);
     return {
       stockOutRecords: state.stockOutRecords.filter(r => r.id !== id),
-      batchLedger: state.batchLedger.map(b =>
+      deletedIds: [...state.deletedIds, id],
+      batchLedger: batchExists ? state.batchLedger.map(b =>
         b.batchId === record.batchId
           ? { ...b, quantityOut: Math.max(0, b.quantityOut - record.quantity), balance: b.balance + record.quantity, updatedAt: new Date().toISOString() }
           : b
-      ),
+      ) : state.batchLedger,
       inventoryBalances: state.inventoryBalances.map(b =>
         b.itemId === record.itemId
           ? { ...b, totalQuantity: b.totalQuantity + record.quantity, availableQuantity: b.availableQuantity + record.quantity, lastUpdated: new Date().toISOString() }
@@ -429,8 +513,21 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     const old = state.stockOutRecords.find(r => r.id === id);
     if (!old) return state;
     const audit = logAudit(state, 'Update Stock Out', 'Stock Out', old.issueNumber, old, { ...old, ...updates });
+    const newQty = updates.quantity ?? old.quantity;
+    const qtyDiff = newQty - old.quantity;
+    const now = new Date().toISOString();
     return {
       stockOutRecords: state.stockOutRecords.map(r => r.id === id ? { ...r, ...updates } : r),
+      batchLedger: qtyDiff !== 0 ? state.batchLedger.map(b =>
+        b.batchId === old.batchId
+          ? { ...b, quantityOut: Math.max(0, b.quantityOut + qtyDiff), balance: Math.max(0, b.balance - qtyDiff), updatedAt: now }
+          : b
+      ) : state.batchLedger,
+      inventoryBalances: qtyDiff !== 0 ? state.inventoryBalances.map(b =>
+        b.itemId === old.itemId
+          ? { ...b, totalQuantity: Math.max(0, b.totalQuantity - qtyDiff), availableQuantity: Math.max(0, b.availableQuantity - qtyDiff), lastUpdated: now }
+          : b
+      ) : state.inventoryBalances,
       auditTrail: [...state.auditTrail, audit],
     };
   }),
@@ -447,18 +544,21 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     let updatedBalances = [...state.inventoryBalances];
 
     if (balance && item) {
-      updatedBalances = updatedBalances.map(b =>
-        b.itemId === item.id ? { ...b, totalQuantity: b.totalQuantity - record.quantity, availableQuantity: Math.max(0, b.availableQuantity - record.quantity), lastUpdated: now } : b
-      );
       const batches = state.batchLedger.filter(b => b.itemId === item.id && b.balance > 0);
+      let remaining = record.quantity;
       if (batches.length > 0) {
-        let remaining = record.quantity;
         updatedBatches = updatedBatches.map(b => {
           if (b.itemId !== item.id || b.balance <= 0 || remaining <= 0) return b;
           const deduct = Math.min(b.balance, remaining);
           remaining -= deduct;
           return { ...b, quantityOut: b.quantityOut + deduct, balance: b.balance - deduct, updatedAt: now };
         });
+        const deducted = record.quantity - remaining;
+        if (deducted > 0) {
+          updatedBalances = updatedBalances.map(b =>
+            b.itemId === item.id ? { ...b, totalQuantity: Math.max(0, b.totalQuantity - deducted), availableQuantity: Math.max(0, b.availableQuantity - deducted), lastUpdated: now } : b
+          );
+        }
       }
     }
 
@@ -477,10 +577,16 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     const updatedBatch = batch
       ? { ...batch, balance: adj.quantityAfter, quantityIn: adj.adjustmentType === 'Addition' ? batch.quantityIn + adj.quantityAdjusted : batch.quantityIn, quantityOut: adj.adjustmentType === 'Deduction' ? batch.quantityOut + adj.quantityAdjusted : batch.quantityOut, updatedAt: now }
       : null;
+    const qtyDiff = adj.quantityAfter - adj.quantityBefore;
     const audit = logAudit(state, 'Stock Adjustment', 'Inventory', adjustmentNumber, { before: adj.quantityBefore, batch: adj.batchId }, { after: adj.quantityAfter, type: adj.adjustmentType, reason: adj.reason });
     return {
       stockAdjustments: [...state.stockAdjustments, newAdj],
       batchLedger: updatedBatch ? state.batchLedger.map(b => b.batchId === adj.batchId ? updatedBatch : b) : state.batchLedger,
+      inventoryBalances: qtyDiff !== 0 ? state.inventoryBalances.map(b =>
+        b.itemId === adj.itemId
+          ? { ...b, totalQuantity: Math.max(0, b.totalQuantity + qtyDiff), availableQuantity: Math.max(0, b.availableQuantity + qtyDiff), lastUpdated: now }
+          : b
+      ) : state.inventoryBalances,
       adjustmentSequence: state.adjustmentSequence + 1,
       auditTrail: [...state.auditTrail, audit],
     };
@@ -491,7 +597,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   })),
 
   addUser: (user) => set((state) => ({
-    users: [...state.users, { ...user, id: generateId(), createdAt: new Date().toISOString() } as any],
+    users: [...state.users, { ...user, id: generateId(), createdAt: new Date().toISOString() } as User],
   })),
 
   setCurrentUser: (user) => set({ currentUser: user }),
@@ -535,6 +641,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     const audit = logAudit(state, 'Delete Job', 'Jobs', id, old, null);
     return {
       jobs: state.jobs.filter(j => j.id !== id),
+      deletedIds: [...state.deletedIds, id],
       auditTrail: [...state.auditTrail, audit],
     };
   }),
@@ -557,6 +664,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
 
   hasPermission: (perm) => {
     const state = get();
+    if (!state.currentUser || !state.currentUser.role) return false;
     const perms = ROLE_MAP[state.currentUser.role] || [];
     return perms.includes(perm);
   },
@@ -567,6 +675,7 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   getEmployeePPEHistory: (empId) => get().stockOutRecords.filter(r => r.employeeId === empId),
 }), {
   name: 'wms-storage',
+  storage: createJSONStorage(() => safeStorage),
   partialize: (state) => ({
     masterItems: state.masterItems,
     employees: state.employees,
@@ -585,5 +694,6 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     grnSequence: state.grnSequence,
     issueSequence: state.issueSequence,
     adjustmentSequence: state.adjustmentSequence,
+    deletedIds: state.deletedIds,
   }),
 }));

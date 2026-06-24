@@ -78,6 +78,8 @@ export default function StockOut() {
       setShowModal(false);
       setFormData({ issueDate: format(new Date(), 'yyyy-MM-dd'), employeeId: '', itemId: '', quantity: 0, jobNumber: '', remarks: '' });
       setSelectedBatchInfo('');
+    } else {
+      alert('Failed to create stock out. Insufficient stock or item not found.');
     }
   };
 

@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Plus, Edit2, Search } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
+import { Plus, Edit2, Trash2, Search } from 'lucide-react';
 import { useWMSStore } from '../store';
 import type { Employee } from '../types';
 import { Modal } from '../components/ui/Modal';
@@ -11,7 +11,7 @@ const emptyEmp: Omit<Employee, 'id' | 'createdAt' | 'updatedAt'> = {
 };
 
 export default function Employees() {
-  const { employees, addEmployee, updateEmployee, stockOutRecords } = useWMSStore();
+  const { employees, addEmployee, updateEmployee, deleteEmployee, stockOutRecords } = useWMSStore();
   const [search, setSearch] = useState('');
   const [filterDept, setFilterDept] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -26,7 +26,13 @@ export default function Employees() {
     });
   }, [employees, search, filterDept]);
 
-  const getEmpIssueCount = (empId: string) => stockOutRecords.filter(r => r.employeeId === empId).length;
+  const empIssueCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    stockOutRecords.forEach(r => { counts[r.employeeId] = (counts[r.employeeId] || 0) + 1; });
+    return counts;
+  }, [stockOutRecords]);
+
+  const getEmpIssueCount = useCallback((empId: string) => empIssueCounts[empId] || 0, [empIssueCounts]);
 
   const openCreate = () => {
     setEditEmp(null);
@@ -132,6 +138,9 @@ export default function Employees() {
                   <td className="table-cell text-center">
                     <button onClick={() => openEdit(emp)} className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600">
                       <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => { if (window.confirm('Delete employee "' + emp.employeeName + '"?')) deleteEmployee(emp.id); }} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600">
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </td>
                 </tr>

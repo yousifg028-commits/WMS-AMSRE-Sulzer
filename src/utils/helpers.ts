@@ -74,16 +74,25 @@ export const formatNumber = (value: number): string => {
   return new Intl.NumberFormat('en-US').format(value);
 };
 
+const escapeXML = (val: string): string => {
+  return val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+};
+
+const escapeCSV = (val: string): string => {
+  if (/^[=+\-@\t\r]/.test(val)) val = "'" + val;
+  if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+    return '"' + val.replace(/"/g, '""') + '"';
+  }
+  return val;
+};
+
 export const exportToCSV = (data: Record<string, unknown>[], filename: string): void => {
   if (data.length === 0) return;
   const headers = Object.keys(data[0]);
   const csvContent = [
-    headers.join(','),
+    headers.map(h => escapeCSV(h)).join(','),
     ...data.map(row =>
-      headers.map(h => {
-        const val = String(row[h] ?? '');
-        return val.includes(',') ? `"${val}"` : val;
-      }).join(',')
+      headers.map(h => escapeCSV(String(row[h] ?? ''))).join(',')
     )
   ].join('\n');
   const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -104,8 +113,8 @@ export const exportToExcel = (data: Record<string, unknown>[], filename: string)
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
  <Worksheet ss:Name="Sheet1">
   <Table>
-   <Row>${headers.map(h => `<Cell><Data ss:Type="String">${h}</Data></Cell>`).join('')}</Row>
-   ${data.map(row => `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${String(row[h] ?? '')}</Data></Cell>`).join('')}</Row>`).join('\n   ')}
+   <Row>${headers.map(h => `<Cell><Data ss:Type="String">${escapeXML(h)}</Data></Cell>`).join('')}</Row>
+   ${data.map(row => `<Row>${headers.map(h => `<Cell><Data ss:Type="String">${escapeXML(String(row[h] ?? ''))}</Data></Cell>`).join('')}</Row>`).join('\n   ')}
   </Table>
  </Worksheet>
 </Workbook>`;

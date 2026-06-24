@@ -1,33 +1,34 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
-import MasterItems from './pages/MasterItems';
-import Employees from './pages/Employees';
-import StockIn from './pages/StockIn';
-import StockOut from './pages/StockOut';
-import BatchLedger from './pages/BatchLedger';
-import PPEHistory from './pages/PPEHistory';
-import InventoryControl from './pages/InventoryControl';
-import ExpiryManagement from './pages/ExpiryManagement';
-import Reports from './pages/Reports';
-import GlobalSearch from './pages/Search';
-import AuditTrail from './pages/AuditTrail';
-import Security from './pages/Security';
-import SettingsPage from './pages/Settings';
-import ArchivedItems from './pages/ArchivedItems';
-import PPETracker from './pages/PPETracker';
-import StationeryTracker from './pages/StationeryTracker';
-import JobMaterialTracker from './pages/JobMaterialTracker';
-import QCTracker from './pages/QCTracker';
-import InventoryHistory from './pages/InventoryHistory';
-import Jobs from './pages/Jobs';
-import QCForm from './pages/QCForm';
-import QRCodePage from './pages/QRCodePage';
-import FormRequestsSheet from './pages/PendingRequests';
 import LoginPage from './pages/Login';
 import PublicStockOutForm from './pages/PublicStockOut';
 import { useWMSStore } from './store';
+
+const MasterItems = lazy(() => import('./pages/MasterItems'));
+const Employees = lazy(() => import('./pages/Employees'));
+const StockIn = lazy(() => import('./pages/StockIn'));
+const StockOut = lazy(() => import('./pages/StockOut'));
+const BatchLedger = lazy(() => import('./pages/BatchLedger'));
+const PPEHistory = lazy(() => import('./pages/PPEHistory'));
+const InventoryControl = lazy(() => import('./pages/InventoryControl'));
+const ExpiryManagement = lazy(() => import('./pages/ExpiryManagement'));
+const Reports = lazy(() => import('./pages/Reports'));
+const GlobalSearch = lazy(() => import('./pages/Search'));
+const AuditTrail = lazy(() => import('./pages/AuditTrail'));
+const Security = lazy(() => import('./pages/Security'));
+const SettingsPage = lazy(() => import('./pages/Settings'));
+const ArchivedItems = lazy(() => import('./pages/ArchivedItems'));
+const PPETracker = lazy(() => import('./pages/PPETracker'));
+const StationeryTracker = lazy(() => import('./pages/StationeryTracker'));
+const JobMaterialTracker = lazy(() => import('./pages/JobMaterialTracker'));
+const QCTracker = lazy(() => import('./pages/QCTracker'));
+const InventoryHistory = lazy(() => import('./pages/InventoryHistory'));
+const Jobs = lazy(() => import('./pages/Jobs'));
+const QCForm = lazy(() => import('./pages/QCForm'));
+const QRCodePage = lazy(() => import('./pages/QRCodePage'));
+const FormRequestsSheet = lazy(() => import('./pages/PendingRequests'));
 
 interface User {
   id: string;
@@ -36,10 +37,31 @@ interface User {
   fullName: string;
 }
 
+function mergeArrayById<T extends { id: string; updatedAt?: string }>(local: T[], server: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const item of local) map.set(item.id, item);
+  for (const item of server) {
+    const existing = map.get(item.id);
+    if (!existing) {
+      map.set(item.id, item);
+    } else if (item.updatedAt && existing.updatedAt && item.updatedAt > existing.updatedAt) {
+      map.set(item.id, item);
+    }
+  }
+  return Array.from(map.values());
+}
+
+function mergeStockRecords<T extends { id: string; issueNumber?: string; grnNumber?: string; createdAt?: string }>(local: T[], server: T[], key: keyof T): T[] {
+  const map = new Map<string, T>();
+  for (const item of local) map.set(String(item[key]), item);
+  for (const item of server) {
+    if (!map.has(String(item[key]))) map.set(String(item[key]), item);
+  }
+  return Array.from(map.values());
+}
+
 function SyncToServer() {
   const store = useWMSStore;
-  const { masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail } = useWMSStore();
-  const hasPulledRef = useRef(false);
 
   const pushToServer = () => {
     const token = localStorage.getItem('wms_token');
@@ -68,8 +90,7 @@ function SyncToServer() {
         grnSequence: s.grnSequence,
         issueSequence: s.issueSequence,
         adjustmentSequence: s.adjustmentSequence,
-        extraUsers: (s as any).extraUsers || [],
-        publicEmployees: (s as any).publicEmployees || [],
+        deletedIds: s.deletedIds || [],
       }),
     }).then((res) => {
       if (res.status === 401) {
@@ -98,88 +119,98 @@ function SyncToServer() {
       .then((data) => {
         if (!data || data.error) return;
         const s = store.getState();
-        const isFirstPull = !hasPulledRef.current;
-        hasPulledRef.current = true;
+        const deleted = new Set([...(s.deletedIds || []), ...(data.deletedIds || [])]);
 
-        const serverHasData = (data.masterItems || []).length > 0;
+        const localItemsFiltered = s.masterItems.filter((i: { id: string }) => !deleted.has(i.id));
+        const serverItemsFiltered = (data.masterItems || []).filter((i: { id: string }) => !deleted.has(i.id));
+        const newMasterItems = mergeArrayById(localItemsFiltered, serverItemsFiltered);
 
-        if (isFirstPull && serverHasData) {
-          useWMSStore.setState({
-            masterItems: data.masterItems || [],
-            employees: data.employees || [],
-            stockInRecords: data.stockInRecords || [],
-            batchLedger: data.batchLedger || [],
-            inventoryBalances: data.inventoryBalances || [],
-            jobs: data.jobs || [],
-            stockAdjustments: data.stockAdjustments || [],
-            auditTrail: data.auditTrail || [],
-            stockOutRecords: data.stockOutRecords || [],
-            alertEmail: data.alertEmail || '',
-          });
-          if (data.batchSequence) useWMSStore.setState({ batchSequence: data.batchSequence });
-          if (data.grnSequence) useWMSStore.setState({ grnSequence: data.grnSequence });
-          if (data.issueSequence) useWMSStore.setState({ issueSequence: data.issueSequence });
-          if (data.adjustmentSequence) useWMSStore.setState({ adjustmentSequence: data.adjustmentSequence });
-          return;
+        const localEmpFiltered = s.employees.filter((e: { id: string }) => !deleted.has(e.id));
+        const serverEmpFiltered = (data.employees || []).filter((e: { id: string }) => !deleted.has(e.id));
+        const newEmployees = mergeArrayById(localEmpFiltered, serverEmpFiltered);
+
+        const localJobsFiltered = s.jobs.filter((j: { id: string }) => !deleted.has(j.id));
+        const serverJobsFiltered = (data.jobs || []).filter((j: { id: string }) => !deleted.has(j.id));
+        const newJobs = mergeArrayById(localJobsFiltered, serverJobsFiltered);
+
+        const localStockInFiltered = s.stockInRecords.filter((r: { id: string }) => !deleted.has(r.id));
+        const serverStockInFiltered = (data.stockInRecords || []).filter((r: { id: string }) => !deleted.has(r.id));
+        const newStockIn = mergeStockRecords(localStockInFiltered, serverStockInFiltered, 'grnNumber');
+
+        const localAdjFiltered = s.stockAdjustments.filter((a: { id: string }) => !deleted.has(a.id));
+        const serverAdjFiltered = (data.stockAdjustments || []).filter((a: { id: string }) => !deleted.has(a.id));
+        const newStockAdjustments = mergeStockRecords(localAdjFiltered, serverAdjFiltered, 'adjustmentNumber');
+
+        const localBatchFiltered = s.batchLedger.filter((b: { id: string; batchId: string }) => !deleted.has(b.id) && !deleted.has(b.batchId));
+        const serverBatchFiltered = (data.batchLedger || []).filter((b: { id: string; batchId: string }) => !deleted.has(b.id) && !deleted.has(b.batchId));
+        const newBatchLedger = mergeStockRecords(localBatchFiltered, serverBatchFiltered, 'batchId');
+
+        const existingIssueNums = new Set(s.stockOutRecords.map((r) => r.issueNumber));
+        const newServerRecords = (data.stockOutRecords || []).filter((r: { issueNumber: string; id: string }) => !existingIssueNums.has(r.issueNumber) && !deleted.has(r.id));
+        for (const r of newServerRecords) {
+          const storeItem = s.masterItems.find((i) => i.itemCode === r.itemCode);
+          s.applyServerStockOut({ ...r, itemId: storeItem ? storeItem.id : r.itemId });
         }
 
-        if (data.masterItems && data.masterItems.length > 0) {
-          s.masterItems.length === 0 && useWMSStore.setState({ masterItems: data.masterItems });
-        }
-        if (data.employees && data.employees.length > 0) {
-          s.employees.length === 0 && useWMSStore.setState({ employees: data.employees });
-        }
-        if (data.stockInRecords && data.stockInRecords.length > 0) {
-          s.stockInRecords.length === 0 && useWMSStore.setState({ stockInRecords: data.stockInRecords });
-        }
-        if (data.batchLedger && data.batchLedger.length > 0) {
-          s.batchLedger.length === 0 && useWMSStore.setState({ batchLedger: data.batchLedger });
-        }
-        if (data.inventoryBalances && data.inventoryBalances.length > 0) {
-          s.inventoryBalances.length === 0 && useWMSStore.setState({ inventoryBalances: data.inventoryBalances });
-        }
-        if (data.jobs && data.jobs.length > 0) {
-          s.jobs.length === 0 && useWMSStore.setState({ jobs: data.jobs });
-        }
-        if (data.stockAdjustments && data.stockAdjustments.length > 0) {
-          s.stockAdjustments.length === 0 && useWMSStore.setState({ stockAdjustments: data.stockAdjustments });
-        }
-        if (data.stockOutRecords) {
-          const existingIssueNums = new Set(s.stockOutRecords.map((r: any) => r.issueNumber));
-          const newRecords = data.stockOutRecords.filter((r: any) => !existingIssueNums.has(r.issueNumber));
-          if (newRecords.length > 0) {
-            for (const r of newRecords) {
-              const storeItem = s.masterItems.find((i: any) => i.itemCode === r.itemCode);
-              s.applyServerStockOut({ ...r, itemId: storeItem ? storeItem.id : r.itemId });
-            }
-          }
-          if (s.stockOutRecords.length === 0 && data.stockOutRecords.length > 0) {
-            useWMSStore.setState({ stockOutRecords: data.stockOutRecords });
-          }
-        }
-        if (data.auditTrail && data.auditTrail.length > 0) {
-          s.auditTrail.length === 0 && useWMSStore.setState({ auditTrail: data.auditTrail });
-        }
-        if (data.alertEmail) {
-          useWMSStore.setState({ alertEmail: data.alertEmail });
-        }
-        if (data.batchSequence) useWMSStore.setState({ batchSequence: Math.max(s.batchSequence, data.batchSequence) });
-        if (data.grnSequence) useWMSStore.setState({ grnSequence: Math.max(s.grnSequence, data.grnSequence) });
-        if (data.issueSequence) useWMSStore.setState({ issueSequence: Math.max(s.issueSequence, data.issueSequence) });
-        if (data.adjustmentSequence) useWMSStore.setState({ adjustmentSequence: Math.max(s.adjustmentSequence, data.adjustmentSequence) });
+        const fresh = store.getState();
+        const newAuditTrail = mergeStockRecords(fresh.auditTrail, data.auditTrail || [], 'id');
+
+        useWMSStore.setState({
+          masterItems: newMasterItems,
+          employees: newEmployees,
+          stockInRecords: newStockIn,
+          batchLedger: newBatchLedger,
+          jobs: newJobs,
+          stockAdjustments: newStockAdjustments,
+          stockOutRecords: fresh.stockOutRecords,
+          auditTrail: newAuditTrail,
+          deletedIds: Array.from(deleted),
+          alertEmail: data.alertEmail || fresh.alertEmail,
+          batchSequence: Math.max(fresh.batchSequence, data.batchSequence || 1),
+          grnSequence: Math.max(fresh.grnSequence, data.grnSequence || 1),
+          issueSequence: Math.max(fresh.issueSequence, data.issueSequence || 1),
+          adjustmentSequence: Math.max(fresh.adjustmentSequence, data.adjustmentSequence || 1),
+        });
       })
       .catch(() => {});
   };
 
   useEffect(() => {
     pullFromServer();
-    pushToServer();
-    const interval = setInterval(() => {
-      pullFromServer();
+
+    const token = localStorage.getItem('wms_token');
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function connectSSE() {
+      if (!token) return;
+      eventSource = new EventSource(`/api/sse?token=${encodeURIComponent(token)}`);
+      eventSource.onmessage = () => {
+        pullFromServer();
+      };
+      eventSource.onerror = () => {
+        eventSource?.close();
+        eventSource = null;
+        reconnectTimer = setTimeout(connectSSE, 3000);
+      };
+    }
+    connectSSE();
+
+    const pushInterval = setInterval(() => {
       pushToServer();
     }, 5000);
-    return () => clearInterval(interval);
-  }, [masterItems, employees, stockInRecords, stockOutRecords, batchLedger, inventoryBalances, jobs, users, stockAdjustments, auditTrail]);
+
+    const pullInterval = setInterval(() => {
+      pullFromServer();
+    }, 15000);
+
+    return () => {
+      clearInterval(pushInterval);
+      clearInterval(pullInterval);
+      eventSource?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, []);
 
   return null;
 }
@@ -222,6 +253,7 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('wms_token');
     localStorage.removeItem('wms_user');
+    useWMSStore.getState().setCurrentUser({ id: '', username: '', email: '', role: 'Viewer', status: 'Inactive', createdAt: '' });
     setUser(null);
   };
 
@@ -243,30 +275,36 @@ export default function App() {
         <Route path="/request-stock" element={<PublicStockOutForm />} />
         <Route element={<Layout onLogout={handleLogout} currentUser={user} />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/items" element={<MasterItems />} />
-          <Route path="/employees" element={<Employees />} />
-          <Route path="/stock-in" element={<StockIn />} />
-          <Route path="/stock-out" element={<StockOut />} />
-          <Route path="/batch-ledger" element={<BatchLedger />} />
-          <Route path="/ppe-history" element={<PPEHistory />} />
-          <Route path="/inventory" element={<InventoryControl />} />
-          <Route path="/archived-items" element={<ArchivedItems />} />
-          <Route path="/jobs" element={<Jobs />} />
-          <Route path="/ppe-tracker" element={<PPETracker />} />
-          <Route path="/stationery-tracker" element={<StationeryTracker />} />
-          <Route path="/job-material-tracker" element={<JobMaterialTracker />} />
-          <Route path="/qc-tracker" element={<QCTracker />} />
-          <Route path="/qc-form" element={<QCForm />} />
-          <Route path="/qr-code" element={<QRCodePage />} />
-          <Route path="/pending-requests" element={<FormRequestsSheet />} />
-          <Route path="/inventory-history" element={<InventoryHistory />} />
-          <Route path="/expiry" element={<ExpiryManagement />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/search" element={<GlobalSearch />} />
-          <Route path="/audit" element={<AuditTrail />} />
-          <Route path="/security" element={<Security />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/" />} />
+          <Route path="*" element={
+            <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>}>
+              <Routes>
+                <Route path="/items" element={<MasterItems />} />
+                <Route path="/employees" element={<Employees />} />
+                <Route path="/stock-in" element={<StockIn />} />
+                <Route path="/stock-out" element={<StockOut />} />
+                <Route path="/batch-ledger" element={<BatchLedger />} />
+                <Route path="/ppe-history" element={<PPEHistory />} />
+                <Route path="/inventory" element={<InventoryControl />} />
+                <Route path="/archived-items" element={<ArchivedItems />} />
+                <Route path="/jobs" element={<Jobs />} />
+                <Route path="/ppe-tracker" element={<PPETracker />} />
+                <Route path="/stationery-tracker" element={<StationeryTracker />} />
+                <Route path="/job-material-tracker" element={<JobMaterialTracker />} />
+                <Route path="/qc-tracker" element={<QCTracker />} />
+                <Route path="/qc-form" element={<QCForm />} />
+                <Route path="/qr-code" element={<QRCodePage />} />
+                <Route path="/pending-requests" element={<FormRequestsSheet />} />
+                <Route path="/inventory-history" element={<InventoryHistory />} />
+                <Route path="/expiry" element={<ExpiryManagement />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/search" element={<GlobalSearch />} />
+                <Route path="/audit" element={<AuditTrail />} />
+                <Route path="/security" element={<Security />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="*" element={<Navigate to="/" />} />
+              </Routes>
+            </Suspense>
+          } />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -1,9 +1,10 @@
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { Printer, QrCode, Copy, CheckCheck } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 export default function QRCodePage() {
   const [copied, setCopied] = useState(false);
+  const qrRef = useRef<HTMLCanvasElement>(null);
   const baseUrl = window.location.origin;
   const formUrl = `${baseUrl}/request-stock`;
 
@@ -14,6 +15,9 @@ export default function QRCodePage() {
   };
 
   const handlePrint = () => {
+    const canvas = qrRef.current;
+    if (!canvas) return;
+    const qrDataUrl = canvas.toDataURL('image/png');
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
     printWindow.document.write(`
@@ -34,7 +38,7 @@ export default function QRCodePage() {
           <h1>AMSER - Sulzer</h1>
           <h2>Stock Out Request</h2>
           <div class="qr">
-            <img src="data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"></svg>')}" width="250" height="250" />
+            <img src="${qrDataUrl}" width="250" height="250" />
           </div>
           <p>Scan this QR code to request stock out</p>
           <div class="instructions">
@@ -74,6 +78,9 @@ export default function QRCodePage() {
               bgColor="#ffffff"
               fgColor="#1e40af"
             />
+          </div>
+          <div style={{ position: 'absolute', left: '-9999px' }}>
+            <QRCodeCanvas ref={qrRef} value={formUrl} size={250} level="H" includeMargin={true} />
           </div>
 
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">

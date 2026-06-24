@@ -62,7 +62,7 @@ export default function Security() {
     return currentUser;
   };
   const loggedUser = getLoggedUser();
-  const isAdmin = loggedUser.role === 'Administrator' && loggedUser.username === 'yousif';
+  const isAdmin = loggedUser.role === 'Administrator';
 
   if (!isAdmin) {
     return (
@@ -105,7 +105,6 @@ export default function Security() {
       email: `${newUsername.trim()}@wms.local`,
       role: newRole,
       status: 'Active',
-      _rawPassword: newPassword || newUsername.trim(),
     } as any);
     addAuditEntry({
       action: 'USER_CREATED',

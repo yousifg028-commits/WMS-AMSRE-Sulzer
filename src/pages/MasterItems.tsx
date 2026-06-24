@@ -16,7 +16,8 @@ const categoryPrefix: Record<string, string> = {
 
 function generateItemCode(category: string, existingItems: MasterItem[]): string {
   const prefix = categoryPrefix[category] || 'ITM';
-  const nextNum = existingItems.length + 1;
+  const sameCatItems = existingItems.filter(i => i.category === category);
+  const nextNum = sameCatItems.length + 1;
   return `${prefix}-${String(nextNum).padStart(3, '0')}`;
 }
 
