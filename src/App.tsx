@@ -178,6 +178,7 @@ function SyncToServer() {
 
         const fresh = store.getState();
         const newAuditTrail = mergeStockRecords(fresh.auditTrail, data.auditTrail || [], 'id');
+        const stockOutFiltered = fresh.stockOutRecords.filter((r: { id: string }) => !deleted.has(r.id));
 
         useWMSStore.setState({
           masterItems: newMasterItems,
@@ -186,7 +187,7 @@ function SyncToServer() {
           batchLedger: newBatchLedger,
           jobs: newJobs,
           stockAdjustments: newStockAdjustments,
-          stockOutRecords: fresh.stockOutRecords,
+          stockOutRecords: stockOutFiltered,
           auditTrail: newAuditTrail,
           deletedIds: Array.from(deleted),
           alertEmail: data.alertEmail || fresh.alertEmail,
