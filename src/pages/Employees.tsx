@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Plus, Edit2, Trash2, Search } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
+import { printTable } from '../utils/helpers';
 import type { Employee } from '../types';
 import { Modal } from '../components/ui/Modal';
 
@@ -34,9 +35,17 @@ export default function Employees() {
 
   const getEmpIssueCount = useCallback((empId: string) => empIssueCounts[empId] || 0, [empIssueCounts]);
 
+  const handlePrint = () => {
+    const headers = ['Emp ID', 'Name', 'Department', 'Position', 'Location', 'Hire Date', 'Status'];
+    const rows = filtered.map(emp => [emp.employeeId, emp.employeeName, emp.department, emp.position, emp.location, emp.hireDate, emp.status]);
+    printTable('Employee Management', headers, rows);
+  };
+
   const openCreate = () => {
     setEditEmp(null);
-    setFormData(emptyEmp);
+    const nextNum = employees.length + 1;
+    const empId = `EMP-${String(nextNum).padStart(3, '0')}`;
+    setFormData({ ...emptyEmp, employeeId: empId });
     setShowModal(true);
   };
 
@@ -47,7 +56,11 @@ export default function Employees() {
   };
 
   const handleSave = () => {
-    if (!formData.employeeId || !formData.employeeName) return;
+    if (!formData.employeeName) return;
+    if (!formData.employeeId) {
+      const nextNum = employees.length + 1;
+      formData.employeeId = `EMP-${String(nextNum).padStart(3, '0')}`;
+    }
     if (editEmp) {
       updateEmployee(editEmp.id, formData);
     } else {
@@ -63,9 +76,14 @@ export default function Employees() {
           <h1 className="text-2xl font-bold text-gray-900">Employee Management</h1>
           <p className="text-sm text-gray-500 mt-1">Manage warehouse employees</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Add Employee
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Add Employee
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-4">
@@ -155,7 +173,7 @@ export default function Employees() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label-field">Employee ID *</label>
-            <input type="text" value={formData.employeeId} onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })} className="input-field" placeholder="e.g. EMP-007" />
+            <input type="text" value={formData.employeeId} readOnly className="input-field bg-gray-100 cursor-not-allowed" placeholder="Auto-generated" />
           </div>
           <div>
             <label className="label-field">Employee Name *</label>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ClipboardList, CheckCircle, XCircle, RefreshCw, ExternalLink, Download, FileSpreadsheet } from 'lucide-react';
+import { ClipboardList, CheckCircle, XCircle, RefreshCw, ExternalLink, Download, FileSpreadsheet, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
+import { printTable } from '../utils/helpers';
 
 interface PendingRequest {
   id: string;
@@ -143,6 +144,15 @@ export default function FormRequestsSheet() {
     URL.revokeObjectURL(url);
   };
 
+  const handlePrint = () => {
+    const headers = ['Request #', 'Date', 'Employee', 'Department', 'Item Code', 'Item Name', 'Qty', 'Unit', 'Status', 'Remarks'];
+    const rows = filtered.map(r => [
+      r.requestNumber, new Date(r.createdAt).toLocaleString(), r.employeeName, r.department,
+      r.itemCode, r.itemName, r.quantity, r.unit, r.status, r.remarks || '-',
+    ]);
+    printTable('Form Requests', headers, rows);
+  };
+
   const formUrl = window.location.origin + '/request-stock';
 
   return (
@@ -159,6 +169,9 @@ export default function FormRequestsSheet() {
           <a href={formUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
             <ExternalLink className="w-4 h-4" /> Open Form
           </a>
+          <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium">
+            <Printer className="w-4 h-4" /> Print
+          </button>
           <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors">
             <Download className="w-4 h-4" /> Export CSV
           </button>

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { FileText, Download } from 'lucide-react';
+import { FileText, Download, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
-import { format as fmt, getExpiryStatus, exportToCSV, exportToExcel } from '../utils/helpers';
+import { format as fmt, getExpiryStatus, exportToCSV, exportToExcel, printTable } from '../utils/helpers';
 
 type ReportType = 'inventory' | 'stock-movement' | 'expiry' | 'ppe' | 'batch' | 'low-stock' | 'issue-history';
 
@@ -135,6 +135,14 @@ export default function Reports() {
     }
   }, [activeReport, masterItems, batchLedger, stockInRecords, stockOutRecords, employees, dateFrom, dateTo]);
 
+  const handlePrint = () => {
+    if (reportData.length === 0) return;
+    const cols = Object.keys(reportData[0]);
+    const rows = reportData.map(row => cols.map(col => String((row as Record<string, unknown>)[col] ?? '')));
+    const reportLabel = reportTypes.find(r => r.value === activeReport)?.label || 'Report';
+    printTable(reportLabel, cols, rows);
+  };
+
   const handleExport = (format: 'csv' | 'excel') => {
     if (format === 'csv') exportToCSV(reportData, `wms-${activeReport}-report`);
     else exportToExcel(reportData, `wms-${activeReport}-report`);
@@ -150,6 +158,9 @@ export default function Reports() {
           <p className="text-sm text-gray-500 mt-1">Generate and export warehouse reports</p>
         </div>
         <div className="flex gap-3">
+          <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+            <Printer className="w-4 h-4" /> Print
+          </button>
           <button onClick={() => handleExport('csv')} className="btn-secondary flex items-center gap-2">
             <Download className="w-4 h-4" /> CSV
           </button>

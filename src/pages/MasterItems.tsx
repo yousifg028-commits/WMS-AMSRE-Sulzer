@@ -1,12 +1,11 @@
 import { useState, useMemo, useRef } from 'react';
-import { Plus, Edit2, Trash2, Printer, Search, Download, Upload, Archive, RotateCcw } from 'lucide-react';
+import { Plus, Edit2, Trash2, Printer, Search, Download, Upload, Archive, RotateCcw, ListPlus } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useWMSStore } from '../store';
 import type { MasterItem } from '../types';
 import { Modal } from '../components/ui/Modal';
-import { exportToExcel, exportToCSV } from '../utils/helpers';
+import { exportToCSV, exportToExcel } from '../utils/helpers';
 
-const categories = ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'];
 const units = ['Box', 'Piece', 'Pair', 'Drum', 'Pack(100)', 'Bucket(20L)', 'Roll', 'Set', 'Kit', 'Ream', 'Box(100)', 'Pack(50)'];
 
 const categoryPrefix: Record<string, string> = {
@@ -16,9 +15,15 @@ const categoryPrefix: Record<string, string> = {
 
 function generateItemCode(category: string, existingItems: MasterItem[]): string {
   const prefix = categoryPrefix[category] || 'ITM';
-  const sameCatItems = existingItems.filter(i => i.category === category);
-  const nextNum = sameCatItems.length + 1;
-  return `${prefix}-${String(nextNum).padStart(3, '0')}`;
+  let maxNum = 0;
+  for (const item of existingItems) {
+    const match = item.itemCode.match(/^[A-Z]+-(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num > maxNum) maxNum = num;
+    }
+  }
+  return `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
 }
 
 const emptyItem: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -30,7 +35,7 @@ const emptyItem: Omit<MasterItem, 'id' | 'createdAt' | 'updatedAt'> = {
 };
 
 export default function MasterItems() {
-  const { masterItems, addItem, updateItem, archiveItem, restoreItem, deleteItem } = useWMSStore();
+  const { masterItems, addItem, updateItem, archiveItem, restoreItem, deleteItem, categories, addCategory, deleteCategory } = useWMSStore();
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState('');
   const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
@@ -44,6 +49,11 @@ export default function MasterItems() {
   const [importFileName, setImportFileName] = useState('');
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [pasteText, setPasteText] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [showCatDropdown, setShowCatDropdown] = useState(false);
+  const [catSearch, setCatSearch] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const duplicateName = formData.itemName && masterItems.find(i => i.itemName.toLowerCase() === formData.itemName.toLowerCase() && i.id !== editItem?.id);
@@ -55,6 +65,9 @@ export default function MasterItems() {
       const matchSearch = !search || item.itemCode.toLowerCase().includes(search.toLowerCase()) || item.itemName.toLowerCase().includes(search.toLowerCase());
       const matchCat = !filterCat || item.category === filterCat;
       return matchStatus && matchSearch && matchCat;
+    }).sort((a, b) => {
+      if (a.category !== b.category) return a.category.localeCompare(b.category);
+      return a.itemCode.localeCompare(b.itemCode);
     });
   }, [masterItems, search, filterCat, activeTab]);
 
@@ -81,14 +94,6 @@ export default function MasterItems() {
     }
     if (editItem) { updateItem(editItem.id, formData); } else { addItem(formData); }
     setShowModal(false);
-  };
-
-  const handleCategoryChange = (category: string) => {
-    if (!editItem) {
-      setFormData({ ...formData, category, itemCode: generateItemCode(category, masterItems) });
-    } else {
-      setFormData({ ...formData, category });
-    }
   };
 
   const handleDelete = (item: MasterItem) => {
@@ -260,6 +265,48 @@ export default function MasterItems() {
     setPasteText('');
   };
 
+  const handleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map(item => item.id)));
+    }
+  };
+
+  const handleSelectItem = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Are you sure you want to permanently delete ${selectedIds.size} item(s)?`)) return;
+    selectedIds.forEach(id => deleteItem(id));
+    setSelectedIds(new Set());
+  };
+
+  const handleAddCategory = () => {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    if (categories.includes(name)) { alert('Category already exists'); return; }
+    addCategory(name);
+    if (!categoryPrefix[name]) {
+      categoryPrefix[name] = name.substring(0, 3).toUpperCase();
+    }
+    setNewCategoryName('');
+  };
+
+  const handleDeleteCategory = (cat: string) => {
+    const inUse = masterItems.some(i => i.category === cat);
+    if (inUse) { alert(`Cannot delete "${cat}" — it is used by ${masterItems.filter(i => i.category === cat).length} item(s).`); return; }
+    if (!window.confirm(`Delete category "${cat}"?`)) return;
+    deleteCategory(cat);
+    delete categoryPrefix[cat];
+  };
+
   const handlePaste = () => {
     if (!pasteText.trim()) { setImportErrors(['Nothing pasted']); return; }
     const lines = pasteText.trim().split('\n').filter(l => l.trim());
@@ -309,6 +356,14 @@ export default function MasterItems() {
           <p className="text-sm text-gray-500 mt-1">Manage your inventory items catalog</p>
         </div>
         <div className="flex items-center gap-3">
+          {selectedIds.size > 0 && (
+            <button onClick={handleBulkDelete} className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">
+              <Trash2 className="w-4 h-4" /> Delete ({selectedIds.size})
+            </button>
+          )}
+          <button onClick={() => setShowCategoryModal(true)} className="btn-secondary flex items-center gap-2">
+            <ListPlus className="w-4 h-4" /> Categories
+          </button>
           <div className="relative">
             <button onClick={() => setShowExportMenu(!showExportMenu)} className="btn-secondary flex items-center gap-2">
               <Download className="w-4 h-4" /> Export
@@ -350,6 +405,9 @@ export default function MasterItems() {
           <table className="w-full">
             <thead>
               <tr className="table-header">
+                <th className="px-4 py-3 text-center w-10">
+                  <input type="checkbox" checked={filtered.length > 0 && selectedIds.size === filtered.length} onChange={handleSelectAll} className="rounded border-gray-300" />
+                </th>
                 <th className="px-4 py-3 text-left">Item Code</th>
                 <th className="px-4 py-3 text-left">Item Name</th>
                 <th className="px-4 py-3 text-left">Category</th>
@@ -369,6 +427,9 @@ export default function MasterItems() {
             <tbody className="divide-y divide-gray-100">
               {filtered.map(item => (
                 <tr key={item.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-center">
+                    <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => handleSelectItem(item.id)} className="rounded border-gray-300" />
+                  </td>
                   <td className="table-cell font-medium text-blue-600">{item.itemCode}</td>
                   <td className="table-cell">{item.itemName}</td>
                   <td className="table-cell">{item.category}</td>
@@ -399,7 +460,7 @@ export default function MasterItems() {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={14} className="px-4 py-12 text-center text-gray-500">No items found</td></tr>
+                <tr><td colSpan={15} className="px-4 py-12 text-center text-gray-500">No items found</td></tr>
               )}
             </tbody>
           </table>
@@ -418,12 +479,35 @@ export default function MasterItems() {
             <input type="text" value={formData.itemName} onChange={(e) => setFormData({ ...formData, itemName: e.target.value })} className={`input-field ${duplicateName ? 'border-red-500' : ''}`} placeholder="Enter item name" />
             {duplicateName && <p className="text-red-500 text-xs mt-1">This item name already exists ({duplicateName.itemCode})</p>}
           </div>
-          <div>
+          <div className="relative">
             <label className="label-field">Category</label>
-            <select value={formData.category} onChange={(e) => handleCategoryChange(e.target.value)} className="select-field" disabled={!!editItem}>
-              <option value="">Select category</option>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <input
+              type="text"
+              value={showCatDropdown ? catSearch : formData.category}
+              onChange={(e) => { const v = e.target.value; setCatSearch(v); setFormData({ ...formData, category: v }); setShowCatDropdown(true); }}
+              onFocus={() => { setCatSearch(''); setShowCatDropdown(true); }}
+              className="input-field"
+              placeholder="Type or select category"
+            />
+            {showCatDropdown && (
+              <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                {categories.filter(c => !catSearch || c.toLowerCase().includes(catSearch.toLowerCase())).map(c => (
+                  <button key={c} type="button" onClick={() => {
+                    if (editItem) { setFormData({ ...formData, category: c }); }
+                    else { setFormData({ ...formData, category: c, itemCode: generateItemCode(c, masterItems) }); }
+                    setShowCatDropdown(false); setCatSearch('');
+                  }} className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${formData.category === c ? 'bg-blue-100 font-medium' : ''}`}>
+                    {c}
+                  </button>
+                ))}
+                {catSearch && !categories.includes(catSearch) && (
+                  <button type="button" onClick={() => { addCategory(catSearch); if (!categoryPrefix[catSearch]) categoryPrefix[catSearch] = catSearch.substring(0, 3).toUpperCase(); setFormData({ ...formData, category: catSearch, ...(editItem ? {} : { itemCode: generateItemCode(catSearch, masterItems) }) }); setShowCatDropdown(false); setCatSearch(''); }}
+                    className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-100 font-medium">
+                    + Add "{catSearch}"
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           <div>
             <label className="label-field">Subcategory (Type)</label>
@@ -592,6 +676,32 @@ export default function MasterItems() {
             <button onClick={handleImport} disabled={importData.length === 0} className="btn-primary disabled:opacity-50">
               Import {importData.length} Items
             </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showCategoryModal} onClose={() => { setShowCategoryModal(false); setNewCategoryName(''); }} title="Manage Categories" maxWidth="max-w-md">
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            <input type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()} className="input-field flex-1" placeholder="New category name" />
+            <button onClick={handleAddCategory} className="btn-primary flex items-center gap-1"><Plus className="w-4 h-4" /> Add</button>
+          </div>
+          <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+            {categories.map(cat => {
+              const count = masterItems.filter(i => i.category === cat).length;
+              return (
+                <div key={cat} className="flex items-center justify-between px-4 py-2.5">
+                  <div>
+                    <span className="text-sm font-medium text-gray-900">{cat}</span>
+                    <span className="text-xs text-gray-500 ml-2">({count} items)</span>
+                  </div>
+                  <button onClick={() => handleDeleteCategory(cat)} className="p-1.5 hover:bg-red-50 rounded-lg text-red-600" title="Delete category"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-end pt-2 border-t">
+            <button onClick={() => { setShowCategoryModal(false); setNewCategoryName(''); }} className="btn-secondary">Close</button>
           </div>
         </div>
       </Modal>

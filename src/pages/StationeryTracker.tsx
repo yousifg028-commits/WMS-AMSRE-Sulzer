@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Search, PenTool, Eye } from 'lucide-react';
+import { Search, PenTool, Eye, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
-import { format } from '../utils/helpers';
+import { format, printTable } from '../utils/helpers';
 
 export default function StationeryTracker() {
   const { stockOutRecords, masterItems } = useWMSStore();
@@ -22,6 +22,15 @@ export default function StationeryTracker() {
   }, [stockOutRecords, masterItems, search, dateFrom, dateTo]);
   const detailRecord = stockOutRecords.find(r => r.id === showDetail);
 
+  const handlePrint = () => {
+    const headers = ['Date', 'Employee', 'Item', 'Qty', 'Batch', 'Job #'];
+    const rows = stationeryRecords.map(r => [
+      format(new Date(r.issueDate), 'dd MMM yyyy'), r.employeeName,
+      `${r.itemCode} - ${r.itemName}`, r.quantity, r.batchId, r.jobNumber || '-',
+    ]);
+    printTable('Stationery Tracker', headers, rows);
+  };
+
   const stats = useMemo(() => {
     const total = stationeryRecords.reduce((s, r) => s + r.quantity, 0);
     const uniqueEmp = new Set(stationeryRecords.map(r => r.employeeId)).size;
@@ -30,14 +39,19 @@ export default function StationeryTracker() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
-          <PenTool className="w-5 h-5 text-yellow-600" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+            <PenTool className="w-5 h-5 text-yellow-600" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Stationery Tracker</h1>
+            <p className="text-sm text-gray-500">Track stationery and office supplies consumption</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Stationery Tracker</h1>
-          <p className="text-sm text-gray-500">Track stationery and office supplies consumption</p>
-        </div>
+        <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+          <Printer className="w-4 h-4" /> Print
+        </button>
       </div>
 
       <div className="grid grid-cols-3 gap-4">

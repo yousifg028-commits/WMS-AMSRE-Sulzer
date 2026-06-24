@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Search, AlertTriangle, Clock, Shield, Bell } from 'lucide-react';
+import { Search, AlertTriangle, Clock, Shield, Bell, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
-import { format as fmt, daysUntilExpiry, getExpiryStatus, getExpiryBadgeClass } from '../utils/helpers';
+import { format as fmt, daysUntilExpiry, getExpiryStatus, getExpiryBadgeClass, printTable } from '../utils/helpers';
 
 export default function ExpiryManagement() {
   const { batchLedger } = useWMSStore();
@@ -27,6 +27,16 @@ export default function ExpiryManagement() {
     });
   }, [enriched, search, filterStatus]);
 
+  const handlePrint = () => {
+    const headers = ['Batch ID', 'Item Code', 'Item Name', 'Expiry Date', 'Days Left', 'Balance', 'Status'];
+    const rows = filtered.map(b => [
+      b.batchId, b.itemCode, b.itemName, fmt(new Date(b.expiryDate), 'dd MMM yyyy'),
+      b.daysLeft < 0 ? `${Math.abs(b.daysLeft)}d overdue` : `${b.daysLeft}d`,
+      b.balance, b.expiryStatus,
+    ]);
+    printTable('Expiry Management', headers, rows);
+  };
+
   const summary = useMemo(() => {
     const expired = enriched.filter(b => b.expiryStatus === 'Expired');
     const nearExpiry = enriched.filter(b => b.expiryStatus === 'Near Expiry');
@@ -46,9 +56,14 @@ export default function ExpiryManagement() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Expiry Management</h1>
-        <p className="text-sm text-gray-500 mt-1">Monitor and manage product expiry dates</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Expiry Management</h1>
+          <p className="text-sm text-gray-500 mt-1">Monitor and manage product expiry dates</p>
+        </div>
+        <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+          <Printer className="w-4 h-4" /> Print
+        </button>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

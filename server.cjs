@@ -13,6 +13,7 @@ const bcrypt = require('bcryptjs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'wms-data.json');
+const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_URL || 'https://script.google.com/macros/s/AKfycbx7puscv5jMys7WmVLh4EOYSNRof4yOSoTuq7bhgnDqtR7e0X_VJqDZyglgj8NGUjWF8A/exec';
 
 app.use(cors({
   origin: function(origin, callback) {
@@ -71,6 +72,7 @@ function saveData(extra) {
     persistedData.requestSequence = requestSequence;
     fs.writeFileSync(DATA_FILE, JSON.stringify(persistedData, null, 2));
     notifySSE();
+    syncToGoogleSheetDebounced();
   } catch(e) { console.error('saveData error:', e.message); }
 }
 
@@ -84,6 +86,154 @@ var pendingRequests = persistedData.pendingRequests || [];
 var requestSequence = persistedData.requestSequence || 1000;
 var serverStockOutRecords = persistedData.serverStockOutRecords || [];
 var stockOutSequence = persistedData.stockOutSequence || 0;
+
+function syncToGoogleSheet() {
+  if (!GOOGLE_SHEET_URL) return;
+  try {
+    var sheetsData = {};
+    var masterHeaders = ['id','itemCode','itemName','category','subcategory','unitOfMeasure','location','trackerGroup','batchControlled','fefoEnabled','minimumStock','maximumStock','reorderLevel','standardShelfLife','manufacturer','supplier','msdsRequired','msdsLink','fifoRequired','remarks','status','createdAt','updatedAt'];
+    sheetsData['MasterItems'] = { headers: masterHeaders, rows: persistedData.masterItems || [] };
+    var empHeaders = ['id','employeeId','employeeName','department','position','location','hireDate','status','createdAt','updatedAt'];
+    sheetsData['Employees'] = { headers: empHeaders, rows: persistedData.employees || [] };
+    var siHeaders = ['id','grnNumber','receiptDate','itemId','itemCode','itemName','quantity','unit','batchId','dom','bbd','expiryDate','supplier','warehouseLocation','purchaseOrder','referenceNumber','remarks','createdBy','createdAt'];
+    sheetsData['StockIn'] = { headers: siHeaders, rows: persistedData.stockInRecords || [] };
+    var soHeaders = ['id','issueNumber','issueDate','employeeId','employeeName','department','itemId','itemCode','itemName','quantity','batchId','jobNumber','remarks','createdBy','createdAt'];
+    sheetsData['StockOut'] = { headers: soHeaders, rows: persistedData.stockOutRecords || [] };
+    var blHeaders = ['id','batchId','itemId','itemCode','itemName','dom','bbd','expiryDate','quantityIn','quantityOut','balance','status','createdAt','updatedAt'];
+    sheetsData['BatchLedger'] = { headers: blHeaders, rows: persistedData.batchLedger || [] };
+    var jobHeaders = ['id','jobNumber','jobName','description','status','startDate','endDate','createdAt','updatedAt'];
+    sheetsData['Jobs'] = { headers: jobHeaders, rows: persistedData.jobs || [] };
+    var qmHeaders = ['id','code','itemName','description','category','unit','reason','source','receivedDate','quarantineDate','releaseDate','quantityIn','quantityOut','balance','location','status','inspector','inspectionResult','issuedTo','issuedDate','remarks','createdBy','createdAt','updatedAt'];
+    sheetsData['QuarantineMaterials'] = { headers: qmHeaders, rows: persistedData.quarantineMaterials || [] };
+    var cmHeaders = ['id','code','itemName','description','category','unit','clientName','projectNumber','receivedDate','expectedReturnDate','quantityIn','quantityOut','balance','location','status','issuedTo','issuedDate','remarks','createdBy','createdAt','updatedAt'];
+    sheetsData['ClientMaterials'] = { headers: cmHeaders, rows: persistedData.clientMaterials || [] };
+    var jmHeaders = ['id','code','itemName','category','quantity','jobNumber','jobName','status','issuedTo','issuedDate','remarks','createdBy','createdAt','updatedAt'];
+    sheetsData['JobMaterials'] = { headers: jmHeaders, rows: persistedData.jobMaterials || [] };
+    var ibHeaders = ['id','itemId','itemCode','itemName','totalQuantity','availableQuantity','reservedQuantity','lastUpdated'];
+    sheetsData['InventoryBalances'] = { headers: ibHeaders, rows: persistedData.inventoryBalances || [] };
+
+    var payload = JSON.stringify({ action: 'saveAll', sheets: sheetsData });
+    var url = GOOGLE_SHEET_URL;
+    if (!url.endsWith('/exec') && !url.endsWith('/dev')) url = url + '/exec';
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+      redirect: 'follow',
+    }).then(function() { console.log('Synced to Google Sheet'); })
+      .catch(function(e) { console.error('Google Sheet sync error:', e.message); });
+  } catch(e) { console.error('Google Sheet sync error:', e.message); }
+}
+
+var lastSyncTime = 0;
+function syncToGoogleSheetDebounced() {
+  var now = Date.now();
+  if (now - lastSyncTime < 10000) return;
+  lastSyncTime = now;
+  setTimeout(syncToGoogleSheet, 1000);
+}
+
+function pullFromGoogleSheet(callback) {
+  if (!GOOGLE_SHEET_URL) { callback(false); return; }
+  console.log('Pulling data from Google Sheet...');
+  var url = GOOGLE_SHEET_URL;
+  if (!url.endsWith('/exec') && !url.endsWith('/dev')) url = url + '/exec';
+  console.log('Google Sheet URL: ' + url);
+  
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 30000);
+  
+  fetch(url + '?action=getAll', { redirect: 'follow', signal: controller.signal })
+    .then(function(r) { clearTimeout(timeout); return r.text(); })
+    .then(function(text) {
+      try {
+        var data = JSON.parse(text);
+      } catch(e) {
+        console.error('Google Sheet pull FAILED: Response is HTML, not JSON.');
+        console.error('First 200 chars: ' + text.substring(0, 200));
+        callback(false);
+        return;
+      }
+      if (data.error) { console.error('Google Sheet pull error:', data.error); callback(false); return; }
+      
+      function mergeArrays(serverArr, sheetArr, timeKey) {
+        if (sheetArr === undefined || sheetArr === null) return serverArr || [];
+        if (sheetArr.length === 0) return serverArr || [];
+        if (!serverArr || serverArr.length === 0) return sheetArr;
+        var sMap = {};
+        for (var i = 0; i < serverArr.length; i++) {
+          var id = serverArr[i].id;
+          var existing = sMap[id];
+          if (!existing) {
+            sMap[id] = serverArr[i];
+          } else {
+            var t1 = new Date(existing[timeKey] || existing.createdAt || 0).getTime();
+            var t2 = new Date(serverArr[i][timeKey] || serverArr[i].createdAt || 0).getTime();
+            if (t2 > t1) sMap[id] = serverArr[i];
+          }
+        }
+        var cMap = {};
+        for (var i = 0; i < sheetArr.length; i++) {
+          var id = sheetArr[i].id;
+          var existing = cMap[id];
+          if (!existing) {
+            cMap[id] = sheetArr[i];
+          } else {
+            var t1 = new Date(existing[timeKey] || existing.createdAt || 0).getTime();
+            var t2 = new Date(sheetArr[i][timeKey] || sheetArr[i].createdAt || 0).getTime();
+            if (t2 > t1) cMap[id] = sheetArr[i];
+          }
+        }
+        var merged = {};
+        for (var id in sMap) {
+          merged[id] = sMap[id];
+        }
+        for (var id in cMap) {
+          if (!merged[id]) merged[id] = cMap[id];
+        }
+        return Object.values(merged);
+      }
+
+      var changed = false;
+      var newMasterItems = mergeArrays(persistedData.masterItems, data.MasterItems, 'updatedAt');
+      if (newMasterItems !== persistedData.masterItems) { persistedData.masterItems = newMasterItems; changed = true; }
+      var newEmployees = mergeArrays(persistedData.employees, data.Employees, 'updatedAt');
+      if (newEmployees !== persistedData.employees) { persistedData.employees = newEmployees; changed = true; }
+      var newStockIn = mergeArrays(persistedData.stockInRecords, data.StockIn, 'createdAt');
+      if (newStockIn !== persistedData.stockInRecords) { persistedData.stockInRecords = newStockIn; changed = true; }
+      var newStockOut = mergeArrays(persistedData.stockOutRecords, data.StockOut, 'createdAt');
+      if (newStockOut !== persistedData.stockOutRecords) { persistedData.stockOutRecords = newStockOut; changed = true; }
+      var newBatchLedger = mergeArrays(persistedData.batchLedger, data.BatchLedger, 'updatedAt');
+      if (newBatchLedger !== persistedData.batchLedger) { persistedData.batchLedger = newBatchLedger; changed = true; }
+      var newInvBal = mergeArrays(persistedData.inventoryBalances, data.InventoryBalances, 'lastUpdated');
+      if (newInvBal !== persistedData.inventoryBalances) { persistedData.inventoryBalances = newInvBal; changed = true; }
+      var newJobs = mergeArrays(persistedData.jobs, data.Jobs, 'updatedAt');
+      if (newJobs !== persistedData.jobs) { persistedData.jobs = newJobs; changed = true; }
+      var newUsers = mergeArrays(persistedData.users, data.Users, 'createdAt');
+      if (newUsers !== persistedData.users) { persistedData.users = newUsers; changed = true; }
+      var newQM = mergeArrays(persistedData.quarantineMaterials, data.QuarantineMaterials, 'updatedAt');
+      if (newQM !== persistedData.quarantineMaterials) { persistedData.quarantineMaterials = newQM; changed = true; }
+      var newCM = mergeArrays(persistedData.clientMaterials, data.ClientMaterials, 'updatedAt');
+      if (newCM !== persistedData.clientMaterials) { persistedData.clientMaterials = newCM; changed = true; }
+      var newJM = mergeArrays(persistedData.jobMaterials, data.JobMaterials, 'updatedAt');
+      if (newJM !== persistedData.jobMaterials) { persistedData.jobMaterials = newJM; changed = true; }
+      if (data.AuditTrail && data.AuditTrail.length > 0) {
+        persistedData.auditTrail = data.AuditTrail;
+        changed = true;
+      }
+      if (data.Dashboard && data.Dashboard.length > 0) { changed = true; }
+      if (changed) {
+        saveData();
+        console.log('Data merged from Google Sheet');
+      }
+      callback(changed);
+    })
+    .catch(function(e) {
+      clearTimeout(timeout);
+      console.error('Google Sheet pull error:', e.message);
+      callback(false);
+    });
+}
 
 let emailTransporter = null;
 let alertEmailAddress = persistedData.alertEmailAddress || '';
@@ -314,8 +464,9 @@ app.get('/api/full-sync', authMiddleware, function(req, res) {
     return (arr || []).filter(function(item) { return !deletedSet.has(item.id); });
   }
   res.json({
-    masterItems: filterDeleted(persistedData.masterItems),
+    masterItems: filterDeleted(persistedData.masterItems || []).slice().sort(function(a, b) { if (a.category !== b.category) return a.category.localeCompare(b.category); return (a.itemCode || '').localeCompare(b.itemCode || ''); }),
     employees: filterDeleted(persistedData.employees),
+    categories: persistedData.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'],
     stockInRecords: filterDeleted(persistedData.stockInRecords),
     stockOutRecords: filterDeleted(persistedData.stockOutRecords),
     batchLedger: filterDeleted(persistedData.batchLedger),
@@ -324,6 +475,9 @@ app.get('/api/full-sync', authMiddleware, function(req, res) {
     users: persistedData.users || [],
     stockAdjustments: filterDeleted(persistedData.stockAdjustments),
     auditTrail: persistedData.auditTrail || [],
+    quarantineMaterials: persistedData.quarantineMaterials || [],
+    clientMaterials: persistedData.clientMaterials || [],
+    jobMaterials: persistedData.jobMaterials || [],
     alertEmail: persistedData.alertEmail || '',
     batchSequence: persistedData.batchSequence || 1,
     grnSequence: persistedData.grnSequence || 1,
@@ -383,6 +537,7 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
 
   persistedData.masterItems = mergeById(persistedData.masterItems, body.masterItems);
   persistedData.employees = mergeById(persistedData.employees, body.employees);
+  persistedData.categories = body.categories || persistedData.categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'];
   persistedData.stockInRecords = mergeByField(persistedData.stockInRecords, body.stockInRecords, 'grnNumber');
   persistedData.stockOutRecords = mergeByField(persistedData.stockOutRecords, body.stockOutRecords, 'issueNumber');
   persistedData.batchLedger = mergeByField(persistedData.batchLedger, body.batchLedger, 'batchId');
@@ -391,6 +546,9 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   persistedData.users = body.users || [];
   persistedData.stockAdjustments = mergeByField(persistedData.stockAdjustments, body.stockAdjustments, 'adjustmentNumber');
   persistedData.auditTrail = body.auditTrail || [];
+  if (body.quarantineMaterials && body.quarantineMaterials.length > 0) persistedData.quarantineMaterials = body.quarantineMaterials;
+  if (body.clientMaterials && body.clientMaterials.length > 0) persistedData.clientMaterials = body.clientMaterials;
+  if (body.jobMaterials && body.jobMaterials.length > 0) persistedData.jobMaterials = body.jobMaterials;
   persistedData.alertEmail = body.alertEmail || '';
   persistedData.batchSequence = Math.max(persistedData.batchSequence || 1, body.batchSequence || 1);
   persistedData.grnSequence = Math.max(persistedData.grnSequence || 1, body.grnSequence || 1);
@@ -404,14 +562,15 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   extraUsers = Object.values(serverUserMap);
   persistedData.extraUsers = extraUsers;
   saveData();
+  syncToGoogleSheetDebounced();
   res.json({ ok: true });
 });
 
 app.get('/api/public/stock-data', function(req, res) {
-  var storedItems = persistedData.masterItems || [];
-  var storedEmps = persistedData.employees || [];
-  var storedJobs = persistedData.jobs || [];
-  var storedBatches = persistedData.batchLedger || [];
+  var storedItems = (persistedData.masterItems || []).filter(Boolean);
+  var storedEmps = (persistedData.employees || []).filter(Boolean);
+  var storedJobs = (persistedData.jobs || []).filter(Boolean);
+  var storedBatches = (persistedData.batchLedger || []).filter(Boolean);
 
   var items = storedItems.filter(function(i) { return i.status === 'Active'; }).map(function(item) {
     var balance = storedBatches.filter(function(b) { return b.itemId === item.id; }).reduce(function(s, b) { return s + b.balance; }, 0);
@@ -621,6 +780,28 @@ app.post('/api/pending-requests/:id/approve', authMiddleware, function(req, res)
     requestNumber: approvedReq.requestNumber,
   };
   serverStockOutRecords.push(stockOutRecord);
+
+  if (!persistedData.stockOutRecords) persistedData.stockOutRecords = [];
+  persistedData.stockOutRecords.push(stockOutRecord);
+
+  var itemBatches = (persistedData.batchLedger || []).filter(function(b) { return b.itemId === approvedReq.itemId && b.balance > 0; });
+  var remaining = approvedReq.quantity;
+  for (var bi = 0; bi < itemBatches.length && remaining > 0; bi++) {
+    var batch = itemBatches[bi];
+    var deduct = Math.min(batch.balance, remaining);
+    batch.balance -= deduct;
+    batch.quantityOut += deduct;
+    batch.updatedAt = now;
+    remaining -= deduct;
+  }
+
+  var invBalance = (persistedData.inventoryBalances || []).find(function(b) { return b.itemId === approvedReq.itemId; });
+  if (invBalance) {
+    invBalance.totalQuantity = Math.max(0, invBalance.totalQuantity - approvedReq.quantity);
+    invBalance.availableQuantity = Math.max(0, invBalance.availableQuantity - approvedReq.quantity);
+    invBalance.lastUpdated = now;
+  }
+
   saveData();
   res.json({ ok: true, request: pendingRequests[idx], stockOut: stockOutRecord });
 });
@@ -638,6 +819,83 @@ app.post('/api/pending-requests/:id/reject', authMiddleware, function(req, res) 
 
 app.use(express.static(path.join(__dirname, 'dist')));
 
+app.post('/api/import-csv-data', authMiddleware, function(req, res) {
+  var body = req.body;
+  var imported = {};
+  if (body.masterItems && Array.isArray(body.masterItems)) {
+    persistedData.masterItems = body.masterItems;
+    imported.masterItems = body.masterItems.length;
+  }
+  if (body.employees && Array.isArray(body.employees)) {
+    persistedData.employees = body.employees;
+    imported.employees = body.employees.length;
+  }
+  if (body.stockInRecords && Array.isArray(body.stockInRecords)) {
+    persistedData.stockInRecords = body.stockInRecords;
+    imported.stockInRecords = body.stockInRecords.length;
+  }
+  if (body.stockOutRecords && Array.isArray(body.stockOutRecords)) {
+    persistedData.stockOutRecords = body.stockOutRecords;
+    imported.stockOutRecords = body.stockOutRecords.length;
+  }
+  if (body.batchLedger && Array.isArray(body.batchLedger)) {
+    persistedData.batchLedger = body.batchLedger;
+    imported.batchLedger = body.batchLedger.length;
+  }
+  if (body.inventoryBalances && Array.isArray(body.inventoryBalances)) {
+    persistedData.inventoryBalances = body.inventoryBalances;
+    imported.inventoryBalances = body.inventoryBalances.length;
+  }
+  if (body.jobs && Array.isArray(body.jobs)) {
+    persistedData.jobs = body.jobs;
+    imported.jobs = body.jobs.length;
+  }
+  if (body.categories && Array.isArray(body.categories)) {
+    persistedData.categories = body.categories;
+    imported.categories = body.categories.length;
+  }
+  saveData();
+  syncToGoogleSheetDebounced();
+  console.log('Data imported:', JSON.stringify(imported));
+  res.json({ ok: true, imported: imported });
+});
+
+app.get('/api/diag', function(req, res) {
+  var url = GOOGLE_SHEET_URL || 'NOT SET';
+  if (url !== 'NOT SET' && !url.endsWith('/exec')) url = url + '/exec';
+  var checkUrl = url !== 'NOT SET' ? url + '?action=getAll' : null;
+  
+  if (!checkUrl) {
+    return res.json({ 
+      googleSheetUrl: 'NOT SET', 
+      message: 'GOOGLE_SHEET_URL env var is not set on Render'
+    });
+  }
+  
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 15000);
+  
+  fetch(checkUrl, { redirect: 'follow', signal: controller.signal })
+    .then(function(r) { clearTimeout(timeout); return r.text(); })
+    .then(function(text) {
+      var isJson = false;
+      var parsed = null;
+      try { parsed = JSON.parse(text); isJson = true; } catch(e) {}
+      res.json({
+        googleSheetUrl: GOOGLE_SHEET_URL,
+        isJson: isJson,
+        firstChars: text.substring(0, 200),
+        sheetNames: isJson ? Object.keys(parsed) : [],
+        counts: isJson ? Object.fromEntries(Object.entries(parsed).map(function([k,v]) { return [k, Array.isArray(v) ? v.length : 0]; })) : {},
+        dataCount: isJson ? Object.values(parsed).reduce(function(a,b) { return a + (Array.isArray(b) ? b.length : 0); }, 0) : 0,
+      });
+    })
+    .catch(function(e) {
+      clearTimeout(timeout);
+      res.json({ googleSheetUrl: GOOGLE_SHEET_URL, error: e.message });
+    });
+});
+
 app.use(function(req, res) {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
@@ -647,4 +905,19 @@ app.listen(PORT, '0.0.0.0', function() {
   console.log('='.repeat(50));
   console.log('  WMS Server running on port ' + PORT);
   console.log('='.repeat(50));
+  if (GOOGLE_SHEET_URL) {
+    console.log('  Google Sheet sync: ENABLED');
+    pullFromGoogleSheet(function(changed) {
+      if (changed) console.log('  Initial data loaded from Google Sheet');
+      else console.log('  No data on Google Sheet, using local data');
+    });
+    setInterval(function() {
+      pullFromGoogleSheet(function(changed) {
+        if (changed) console.log('  Periodic pull: data updated from Google Sheet');
+      });
+    }, 60000);
+    console.log('  Periodic pull: every 60 seconds');
+  } else {
+    console.log('  Google Sheet sync: DISABLED (set GOOGLE_SHEET_URL env)');
+  }
 });

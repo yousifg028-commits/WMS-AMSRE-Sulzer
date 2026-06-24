@@ -54,6 +54,8 @@ export interface StockInRecord {
   expiryDate: string;
   supplier: string;
   warehouseLocation: string;
+  purchaseOrder: string;
+  referenceNumber: string;
   remarks: string;
   createdBy: string;
   createdAt: string;
@@ -184,6 +186,24 @@ export interface User {
 }
 
 export type UserRole = 'Administrator' | 'Warehouse Manager' | 'Warehouse Supervisor' | 'Storekeeper' | 'Viewer';
+
+export interface JobMaterial {
+  id: string;
+  code: string;
+  itemName: string;
+  category: string;
+  quantity: number;
+  jobNumber: string;
+  jobName: string;
+  status: 'Pending' | 'Issued' | 'Cancelled';
+  issuedTo: string;
+  issuedDate: string;
+  remarks: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 
 export interface ClientMaterial {
   id: string;

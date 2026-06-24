@@ -126,3 +126,31 @@ export const exportToExcel = (data: Record<string, unknown>[], filename: string)
   link.click();
   URL.revokeObjectURL(url);
 };
+
+export const printTable = (title: string, headers: string[], rows: (string | number)[][]): void => {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+  printWindow.document.write(`
+    <html><head><title>${title}</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 20px; }
+      h1 { color: #1e40af; border-bottom: 2px solid #1e40af; padding-bottom: 10px; font-size: 18px; }
+      .logo { font-size: 12px; color: #666; margin-bottom: 5px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; }
+      th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; }
+      th { background: #f3f4f6; font-weight: bold; }
+      tr:nth-child(even) { background: #f9fafb; }
+      @media print { body { padding: 10px; } }
+    </style></head><body>
+    <div class="logo">AMSER - Sulzer</div>
+    <h1>${title}</h1>
+    <table>
+      <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>
+    <p style="margin-top:15px;font-size:10px;color:#999;">Printed on: ${new Date().toLocaleString()}</p>
+    <script>window.onload = function() { window.print(); }</script>
+    </body></html>
+  `);
+  printWindow.document.close();
+};

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, Eye, AlertTriangle, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Eye, AlertTriangle, Pencil, Trash2, Printer } from 'lucide-react';
 import { useWMSStore } from '../store';
+import { printTable } from '../utils/helpers';
 import { Modal } from '../components/ui/Modal';
 import { format } from 'date-fns';
 import { allocateFEFO } from '../utils/fefo';
@@ -33,6 +34,12 @@ export default function StockOut() {
       return !search || r.issueNumber.toLowerCase().includes(search.toLowerCase()) || r.itemName.toLowerCase().includes(search.toLowerCase()) || r.employeeName.toLowerCase().includes(search.toLowerCase());
     });
   }, [stockOutRecords, search]);
+
+  const handlePrint = () => {
+    const headers = ['Issue Number', 'Date', 'Employee', 'Item', 'Qty', 'Batch ID', 'Job #'];
+    const rows = filtered.map(r => [r.issueNumber, r.issueDate, r.employeeName, r.itemName, r.quantity, r.batchId, r.jobNumber || '-']);
+    printTable('Stock Out Records', headers, rows);
+  };
 
   const handleItemChange = (itemId: string) => {
     setFormData({ ...formData, itemId, quantity: 0 });
@@ -111,9 +118,14 @@ export default function StockOut() {
           <h1 className="text-2xl font-bold text-gray-900">Stock Out</h1>
           <p className="text-sm text-gray-500 mt-1">Issue stock to employees</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> New Issue
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={handlePrint} className="btn-secondary flex items-center gap-2">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> New Issue
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4">

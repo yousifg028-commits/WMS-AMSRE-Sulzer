@@ -4,6 +4,7 @@ import type {
   MasterItem, Employee, StockInRecord, BatchLedgerEntry,
   StockOutRecord, InventoryBalance, StockAdjustment,
   ExpiryAlert, AuditTrailEntry, User, Permission, Job, StockAlert,
+  ClientMaterial, QuarantineMaterial, JobMaterial,
 } from '../types';
 import { generateId, generateBatchId, generateGRN, generateIssueNumber, generateAdjustmentNumber } from '../utils/helpers';
 import { allocateFEFO } from '../utils/fefo';
@@ -57,11 +58,16 @@ interface WMSState {
   jobs: Job[];
   stockAlerts: StockAlert[];
   alertEmail: string;
+  quarantineMaterials: QuarantineMaterial[];
+  clientMaterials: ClientMaterial[];
+  jobMaterials: JobMaterial[];
+  categories: string[];
 
   batchSequence: number;
   grnSequence: number;
   issueSequence: number;
   adjustmentSequence: number;
+  _pushNeeded: boolean;
 
   deletedIds: string[];
 
@@ -101,6 +107,26 @@ interface WMSState {
   setAlertEmail: (email: string) => void;
   getUnreadAlertCount: () => number;
 
+  addCategory: (category: string) => void;
+  deleteCategory: (category: string) => void;
+
+  addQuarantineMaterial: (item: Omit<QuarantineMaterial, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateQuarantineMaterial: (id: string, updates: Partial<QuarantineMaterial>) => void;
+  deleteQuarantineMaterial: (id: string) => void;
+  issueQuarantineMaterial: (id: string, qty: number, issuedTo: string, issuedDate: string, source: string, jobNumber: string, remarks: string) => void;
+  releaseQuarantineMaterial: (id: string, status: QuarantineMaterial['status'], inspectionResult: string, releaseDate: string, issuedTo: string, remarks: string) => void;
+
+  addClientMaterial: (item: Omit<ClientMaterial, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateClientMaterial: (id: string, updates: Partial<ClientMaterial>) => void;
+  deleteClientMaterial: (id: string) => void;
+  issueClientMaterial: (id: string, qty: number, issuedTo: string, issuedDate: string, source: string, jobNumber: string, remarks: string) => void;
+  returnClientMaterial: (id: string, qty: number) => void;
+
+  addJobMaterial: (item: Omit<JobMaterial, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateJobMaterial: (id: string, updates: Partial<JobMaterial>) => void;
+  deleteJobMaterial: (id: string) => void;
+  issueJobMaterial: (id: string, qty: number, issuedTo: string, issuedDate: string, remarks: string) => string | null;
+
   getStockInByItem: (itemId: string) => StockInRecord[];
   getBatchesByItem: (itemId: string) => BatchLedgerEntry[];
   getStockOutByEmployee: (empId: string) => StockOutRecord[];
@@ -135,14 +161,14 @@ const mockEmployees: Employee[] = [
 ];
 
 const mockStockInRecords: StockInRecord[] = [
-  { id: 'si1', grnNumber: 'GRN-20250401-0001', receiptDate: '2025-04-01', itemId: '1', itemCode: 'PPE-GLV-001', itemName: 'Nitrile Gloves (L)', quantity: 200, unit: 'Box', batchId: 'BATCH-20250401-0001', dom: '2025-03-15', bbd: '2028-03-15', expiryDate: '2028-03-15', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-01-01', remarks: 'Regular stock', createdBy: 'admin', createdAt: '2025-04-01T08:30:00' },
-  { id: 'si2', grnNumber: 'GRN-20250401-0002', receiptDate: '2025-04-01', itemId: '2', itemCode: 'PPE-MSK-002', itemName: 'N95 Respirator Mask', quantity: 100, unit: 'Box', batchId: 'BATCH-20250401-0002', dom: '2025-03-20', bbd: '2027-03-20', expiryDate: '2027-03-20', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-01-02', remarks: 'Regular stock', createdBy: 'admin', createdAt: '2025-04-01T09:00:00' },
-  { id: 'si3', grnNumber: 'GRN-20250405-0001', receiptDate: '2025-04-05', itemId: '5', itemCode: 'CHE-CLN-005', itemName: 'Industrial Cleaner 5L', quantity: 30, unit: 'Drum', batchId: 'BATCH-20250405-0001', dom: '2025-04-01', bbd: '2026-10-01', expiryDate: '2026-10-01', supplier: 'ChemSupply Co', warehouseLocation: 'C-02-01', remarks: 'Chemical storage', createdBy: 'admin', createdAt: '2025-04-05T10:15:00' },
-  { id: 'si4', grnNumber: 'GRN-20250410-0001', receiptDate: '2025-04-10', itemId: '1', itemCode: 'PPE-GLV-001', itemName: 'Nitrile Gloves (L)', quantity: 150, unit: 'Box', batchId: 'BATCH-20250410-0001', dom: '2025-04-05', bbd: '2028-04-05', expiryDate: '2028-04-05', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-01-01', remarks: 'Additional stock', createdBy: 'admin', createdAt: '2025-04-10T11:00:00' },
-  { id: 'si5', grnNumber: 'GRN-20250415-0001', receiptDate: '2025-04-15', itemId: '3', itemCode: 'PPE-EST-003', itemName: 'Safety Glasses', quantity: 50, unit: 'Piece', batchId: 'BATCH-20250415-0001', dom: '2025-04-10', bbd: '2030-04-10', expiryDate: '2030-04-10', supplier: 'ProtectAll Inc', warehouseLocation: 'A-02-01', remarks: 'Restock', createdBy: 'admin', createdAt: '2025-04-15T09:30:00' },
-  { id: 'si6', grnNumber: 'GRN-20250420-0001', receiptDate: '2025-04-20', itemId: '7', itemCode: 'PPE-HLM-007', itemName: 'Hard Hat (White)', quantity: 30, unit: 'Piece', batchId: 'BATCH-20250420-0001', dom: '2025-04-15', bbd: '2030-04-15', expiryDate: '2030-04-15', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-03-01', remarks: 'New batch', createdBy: 'admin', createdAt: '2025-04-20T14:00:00' },
-  { id: 'si7', grnNumber: 'GRN-20250425-0001', receiptDate: '2025-04-25', itemId: '8', itemCode: 'PPE-HNS-008', itemName: 'Hi-Vis Safety Vest', quantity: 40, unit: 'Piece', batchId: 'BATCH-20250425-0001', dom: '2025-04-20', bbd: '2028-04-20', expiryDate: '2028-04-20', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-04-01', remarks: 'Restock', createdBy: 'admin', createdAt: '2025-04-25T10:00:00' },
-  { id: 'si8', grnNumber: 'GRN-20250501-0001', receiptDate: '2025-05-01', itemId: '4', itemCode: 'PPE-BOT-004', itemName: 'Steel Toe Boots', quantity: 15, unit: 'Pair', batchId: 'BATCH-20250501-0001', dom: '2025-04-25', bbd: '2028-04-25', expiryDate: '2028-04-25', supplier: 'ProtectAll Inc', warehouseLocation: 'A-05-01', remarks: 'New shipment', createdBy: 'admin', createdAt: '2025-05-01T08:00:00' },
+  { id: 'si1', grnNumber: 'GRN-20250401-0001', receiptDate: '2025-04-01', itemId: '1', itemCode: 'PPE-GLV-001', itemName: 'Nitrile Gloves (L)', quantity: 200, unit: 'Box', batchId: 'BATCH-20250401-0001', dom: '2025-03-15', bbd: '2028-03-15', expiryDate: '2028-03-15', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-01-01', purchaseOrder: 'PO-001', referenceNumber: 'REF-001', remarks: 'Regular stock', createdBy: 'admin', createdAt: '2025-04-01T08:30:00' },
+  { id: 'si2', grnNumber: 'GRN-20250401-0002', receiptDate: '2025-04-01', itemId: '2', itemCode: 'PPE-MSK-002', itemName: 'N95 Respirator Mask', quantity: 100, unit: 'Box', batchId: 'BATCH-20250401-0002', dom: '2025-03-20', bbd: '2027-03-20', expiryDate: '2027-03-20', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-01-02', purchaseOrder: 'PO-002', referenceNumber: 'REF-002', remarks: 'Regular stock', createdBy: 'admin', createdAt: '2025-04-01T09:00:00' },
+  { id: 'si3', grnNumber: 'GRN-20250405-0001', receiptDate: '2025-04-05', itemId: '5', itemCode: 'CHE-CLN-005', itemName: 'Industrial Cleaner 5L', quantity: 30, unit: 'Drum', batchId: 'BATCH-20250405-0001', dom: '2025-04-01', bbd: '2026-10-01', expiryDate: '2026-10-01', supplier: 'ChemSupply Co', warehouseLocation: 'C-02-01', purchaseOrder: 'PO-003', referenceNumber: 'REF-003', remarks: 'Chemical storage', createdBy: 'admin', createdAt: '2025-04-05T10:15:00' },
+  { id: 'si4', grnNumber: 'GRN-20250410-0001', receiptDate: '2025-04-10', itemId: '1', itemCode: 'PPE-GLV-001', itemName: 'Nitrile Gloves (L)', quantity: 150, unit: 'Box', batchId: 'BATCH-20250410-0001', dom: '2025-04-05', bbd: '2028-04-05', expiryDate: '2028-04-05', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-01-01', purchaseOrder: 'PO-004', referenceNumber: 'REF-004', remarks: 'Additional stock', createdBy: 'admin', createdAt: '2025-04-10T11:00:00' },
+  { id: 'si5', grnNumber: 'GRN-20250415-0001', receiptDate: '2025-04-15', itemId: '3', itemCode: 'PPE-EST-003', itemName: 'Safety Glasses', quantity: 50, unit: 'Piece', batchId: 'BATCH-20250415-0001', dom: '2025-04-10', bbd: '2030-04-10', expiryDate: '2030-04-10', supplier: 'ProtectAll Inc', warehouseLocation: 'A-02-01', purchaseOrder: 'PO-005', referenceNumber: 'REF-005', remarks: 'Restock', createdBy: 'admin', createdAt: '2025-04-15T09:30:00' },
+  { id: 'si6', grnNumber: 'GRN-20250420-0001', receiptDate: '2025-04-20', itemId: '7', itemCode: 'PPE-HLM-007', itemName: 'Hard Hat (White)', quantity: 30, unit: 'Piece', batchId: 'BATCH-20250420-0001', dom: '2025-04-15', bbd: '2030-04-15', expiryDate: '2030-04-15', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-03-01', purchaseOrder: 'PO-006', referenceNumber: 'REF-006', remarks: 'New batch', createdBy: 'admin', createdAt: '2025-04-20T14:00:00' },
+  { id: 'si7', grnNumber: 'GRN-20250425-0001', receiptDate: '2025-04-25', itemId: '8', itemCode: 'PPE-HNS-008', itemName: 'Hi-Vis Safety Vest', quantity: 40, unit: 'Piece', batchId: 'BATCH-20250425-0001', dom: '2025-04-20', bbd: '2028-04-20', expiryDate: '2028-04-20', supplier: 'SafetyFirst Ltd', warehouseLocation: 'A-04-01', purchaseOrder: 'PO-007', referenceNumber: 'REF-007', remarks: 'Restock', createdBy: 'admin', createdAt: '2025-04-25T10:00:00' },
+  { id: 'si8', grnNumber: 'GRN-20250501-0001', receiptDate: '2025-05-01', itemId: '4', itemCode: 'PPE-BOT-004', itemName: 'Steel Toe Boots', quantity: 15, unit: 'Pair', batchId: 'BATCH-20250501-0001', dom: '2025-04-25', bbd: '2028-04-25', expiryDate: '2028-04-25', supplier: 'ProtectAll Inc', warehouseLocation: 'A-05-01', purchaseOrder: 'PO-008', referenceNumber: 'REF-008', remarks: 'New shipment', createdBy: 'admin', createdAt: '2025-05-01T08:00:00' },
 ];
 
 const mockBatchLedger: BatchLedgerEntry[] = [
@@ -224,7 +250,7 @@ function logAudit(state: WMSState, action: string, module: string, recordId: str
     afterValue: after ? JSON.stringify(after, null, 2) : '',
     performedBy: state.currentUser.username,
     performedAt: new Date().toISOString(),
-    ipAddress: 'localhost',
+    ipAddress: window?.location?.hostname || 'local',
   };
 }
 
@@ -253,11 +279,16 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
   jobs: mockJobs,
   stockAlerts: [],
   alertEmail: 'yousifg028@gmail.com',
+  quarantineMaterials: [],
+  clientMaterials: [],
+  jobMaterials: [],
+  categories: ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'],
   batchSequence: 9,
   grnSequence: 9,
   issueSequence: 11,
   adjustmentSequence: 1,
   deletedIds: [],
+  _pushNeeded: false,
 
   addItem: (item) => set((state) => {
     const now = new Date().toISOString();
@@ -646,6 +677,216 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     };
   }),
 
+  addQuarantineMaterial: (item) => set((state) => {
+    const now = new Date().toISOString();
+    const newItem: QuarantineMaterial = { ...item, id: generateId(), createdAt: now, updatedAt: now };
+    const audit = logAudit(state, 'Add Quarantine Material', 'Quarantine', newItem.id, null, newItem);
+    return { quarantineMaterials: [...state.quarantineMaterials, newItem], auditTrail: [...state.auditTrail, audit] };
+  }),
+
+  updateQuarantineMaterial: (id, updates) => set((state) => {
+    const old = state.quarantineMaterials.find(q => q.id === id);
+    const audit = logAudit(state, 'Update Quarantine Material', 'Quarantine', id, old, { ...old, ...updates });
+    return {
+      quarantineMaterials: state.quarantineMaterials.map(q => q.id === id ? { ...q, ...updates, updatedAt: new Date().toISOString() } : q),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  deleteQuarantineMaterial: (id) => set((state) => {
+    const old = state.quarantineMaterials.find(q => q.id === id);
+    const audit = logAudit(state, 'Delete Quarantine Material', 'Quarantine', id, old, null);
+    return {
+      quarantineMaterials: state.quarantineMaterials.filter(q => q.id !== id),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  issueQuarantineMaterial: (id, qty, issuedTo, issuedDate, source, jobNumber, remarks) => {
+    const state = get();
+    const item = state.quarantineMaterials.find(q => q.id === id);
+    if (!item) return;
+
+    state.createStockOut({
+      issueDate: issuedDate,
+      employeeId: '',
+      employeeName: issuedTo,
+      department: '',
+      itemId: '',
+      itemCode: item.code,
+      itemName: item.itemName,
+      quantity: qty,
+      jobNumber: jobNumber || '',
+      remarks: remarks || `Quarantine Issue - ${item.code}`,
+      createdBy: state.currentUser.username,
+    });
+
+    const newQtyOut = item.quantityOut + qty;
+    const newBalance = item.quantityIn - newQtyOut;
+    const updates = {
+      quantityOut: newQtyOut,
+      balance: newBalance,
+      issuedTo,
+      issuedDate,
+      remarks,
+    };
+    set((state) => {
+      const audit = logAudit(state, 'Issue from Quarantine', 'Quarantine', id, item, { ...item, ...updates, issueSource: source, jobNumber });
+      return {
+        quarantineMaterials: state.quarantineMaterials.map(q => q.id === id ? { ...q, ...updates, updatedAt: new Date().toISOString() } : q),
+        auditTrail: [...state.auditTrail, audit],
+      };
+    });
+  },
+
+  releaseQuarantineMaterial: (id, status, inspectionResult, releaseDate, issuedTo, remarks) => set((state) => {
+    const item = state.quarantineMaterials.find(q => q.id === id);
+    if (!item) return state;
+    const updates = {
+      status,
+      inspectionResult,
+      releaseDate,
+      issuedTo,
+      remarks,
+    };
+    const audit = logAudit(state, 'Release/Reject Quarantine Material', 'Quarantine', id, item, { ...item, ...updates });
+    return {
+      quarantineMaterials: state.quarantineMaterials.map(q => q.id === id ? { ...q, ...updates, updatedAt: new Date().toISOString() } : q),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  addCategory: (category) => set((state) => {
+    if (state.categories.includes(category)) return state;
+    return { categories: [...state.categories, category] };
+  }),
+
+  deleteCategory: (category) => set((state) => ({
+    categories: state.categories.filter(c => c !== category),
+  })),
+
+  addClientMaterial: (item) => set((state) => {
+    const now = new Date().toISOString();
+    const newItem: ClientMaterial = { ...item, id: generateId(), createdAt: now, updatedAt: now };
+    const audit = logAudit(state, 'Add Client Material', 'Client Materials', newItem.id, null, newItem);
+    return { clientMaterials: [...state.clientMaterials, newItem], auditTrail: [...state.auditTrail, audit] };
+  }),
+
+  updateClientMaterial: (id, updates) => set((state) => {
+    const old = state.clientMaterials.find(c => c.id === id);
+    const audit = logAudit(state, 'Update Client Material', 'Client Materials', id, old, { ...old, ...updates });
+    return {
+      clientMaterials: state.clientMaterials.map(c => c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  deleteClientMaterial: (id) => set((state) => {
+    const old = state.clientMaterials.find(c => c.id === id);
+    const audit = logAudit(state, 'Delete Client Material', 'Client Materials', id, old, null);
+    return {
+      clientMaterials: state.clientMaterials.filter(c => c.id !== id),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  issueClientMaterial: (id, qty, issuedTo, issuedDate, source, jobNumber, remarks) => set((state) => {
+    const item = state.clientMaterials.find(c => c.id === id);
+    if (!item) return state;
+    const updates = {
+      quantityOut: item.quantityOut + qty,
+      balance: item.balance - qty,
+      status: (item.balance - qty <= 0 ? 'Issued' : 'In Stock') as ClientMaterial['status'],
+      issuedTo,
+      issuedDate,
+      remarks,
+    };
+    const audit = logAudit(state, 'Issue Client Material', 'Client Materials', id, item, { ...item, ...updates, issueSource: source, jobNumber });
+    return {
+      clientMaterials: state.clientMaterials.map(c => c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  returnClientMaterial: (id, qty) => set((state) => {
+    const item = state.clientMaterials.find(c => c.id === id);
+    if (!item) return state;
+    const updates = {
+      quantityOut: Math.max(0, item.quantityOut - qty),
+      balance: item.balance + qty,
+      status: 'Returned' as ClientMaterial['status'],
+    };
+    const audit = logAudit(state, 'Return Client Material', 'Client Materials', id, item, { ...item, ...updates });
+    return {
+      clientMaterials: state.clientMaterials.map(c => c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  addJobMaterial: (item) => set((state) => {
+    const now = new Date().toISOString();
+    const newItem: JobMaterial = { ...item, id: generateId(), createdAt: now, updatedAt: now };
+    const audit = logAudit(state, 'Add Job Material', 'Job Materials', newItem.id, null, newItem);
+    return { jobMaterials: [...state.jobMaterials, newItem], auditTrail: [...state.auditTrail, audit] };
+  }),
+
+  updateJobMaterial: (id, updates) => set((state) => {
+    const old = state.jobMaterials.find(j => j.id === id);
+    const audit = logAudit(state, 'Update Job Material', 'Job Materials', id, old, { ...old, ...updates });
+    return {
+      jobMaterials: state.jobMaterials.map(j => j.id === id ? { ...j, ...updates, updatedAt: new Date().toISOString() } : j),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  deleteJobMaterial: (id) => set((state) => {
+    const old = state.jobMaterials.find(j => j.id === id);
+    const audit = logAudit(state, 'Delete Job Material', 'Job Materials', id, old, null);
+    return {
+      jobMaterials: state.jobMaterials.filter(j => j.id !== id),
+      auditTrail: [...state.auditTrail, audit],
+    };
+  }),
+
+  issueJobMaterial: (id, qty, issuedTo, issuedDate, remarks) => {
+    const state = get();
+    const item = state.jobMaterials.find(j => j.id === id);
+    if (!item) return null;
+
+    const masterItem = state.masterItems.find(m => m.itemCode === item.category || m.itemName === item.itemName);
+    const stockOutResult = state.createStockOut({
+      issueDate: issuedDate,
+      employeeId: '',
+      employeeName: issuedTo,
+      department: '',
+      itemId: masterItem ? masterItem.id : '',
+      itemCode: masterItem ? masterItem.itemCode : item.category,
+      itemName: item.itemName,
+      quantity: qty,
+      jobNumber: item.jobNumber,
+      remarks: remarks || `Job Material Issue - ${item.code}`,
+      createdBy: state.currentUser.username,
+    });
+
+    const updates = {
+      quantity: Math.max(0, item.quantity - qty),
+      status: (item.quantity - qty <= 0 ? 'Issued' : 'Pending') as JobMaterial['status'],
+      issuedTo,
+      issuedDate,
+      remarks,
+    };
+
+    set((state) => {
+      const audit = logAudit(state, 'Issue Job Material', 'Job Materials', id, item, { ...item, ...updates });
+      return {
+        jobMaterials: state.jobMaterials.map(j => j.id === id ? { ...j, ...updates, updatedAt: new Date().toISOString() } : j),
+        auditTrail: [...state.auditTrail, audit],
+      };
+    });
+
+    return stockOutResult;
+  },
+
   addAlert: (alert) => set((state) => ({
     stockAlerts: [{ ...alert, id: generateId(), createdAt: new Date().toISOString() }, ...state.stockAlerts],
   })),
@@ -690,6 +931,10 @@ export const useWMSStore = create<WMSState>()(persist((set, get) => ({
     jobs: state.jobs,
     stockAlerts: state.stockAlerts,
     alertEmail: state.alertEmail,
+    quarantineMaterials: state.quarantineMaterials,
+    jobMaterials: state.jobMaterials,
+    clientMaterials: state.clientMaterials,
+    categories: state.categories,
     batchSequence: state.batchSequence,
     grnSequence: state.grnSequence,
     issueSequence: state.issueSequence,

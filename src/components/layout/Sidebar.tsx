@@ -5,6 +5,7 @@ import {
   ArrowUpFromLine, ClipboardList, Warehouse, Clock, FileText,
   Search, Shield, Settings, ChevronLeft, ChevronRight, AlertTriangle, Archive,
   HardHat, StickyNote, Wrench, CheckSquare, History, Briefcase, QrCode,
+  Boxes,
 } from 'lucide-react';
 import { useWMSStore } from '../../store';
 
@@ -20,7 +21,9 @@ const navItems = [
   { divider: 'Operations' },
   { to: '/employees', label: 'Employees', icon: Users },
   { to: '/jobs', label: 'Jobs', icon: Briefcase },
+  { to: '/job-materials', label: 'Job Materials', icon: Boxes },
   { to: '/ppe-history', label: 'PPE Issue History', icon: TruckIcon },
+  { to: '/quarantine-materials', label: 'Quarantine Materials', icon: Shield },
   { to: '/expiry', label: 'Expiry Management', icon: AlertTriangle },
   { divider: 'Trackers' },
   { to: '/ppe-tracker', label: 'PPE Tracker', icon: HardHat },

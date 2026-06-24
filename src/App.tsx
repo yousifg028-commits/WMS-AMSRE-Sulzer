@@ -1,4 +1,13 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, Component, type ReactNode } from 'react';
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
+  state = { error: '' };
+  static getDerivedStateFromError(e: Error) { return { error: e.message + '\n' + e.stack }; }
+  render() {
+    if (this.state.error) return <pre style={{padding:20,whiteSpace:'pre-wrap',color:'red',background:'#fff',fontSize:14}}>{this.state.error}</pre>;
+    return this.props.children;
+  }
+}
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
@@ -26,6 +35,8 @@ const JobMaterialTracker = lazy(() => import('./pages/JobMaterialTracker'));
 const QCTracker = lazy(() => import('./pages/QCTracker'));
 const InventoryHistory = lazy(() => import('./pages/InventoryHistory'));
 const Jobs = lazy(() => import('./pages/Jobs'));
+const JobMaterials = lazy(() => import('./pages/JobMaterials'));
+const QuarantineMaterials = lazy(() => import('./pages/QuarantineMaterials'));
 const QCForm = lazy(() => import('./pages/QCForm'));
 const QRCodePage = lazy(() => import('./pages/QRCodePage'));
 const FormRequestsSheet = lazy(() => import('./pages/PendingRequests'));
@@ -62,11 +73,19 @@ function mergeStockRecords<T extends { id: string; issueNumber?: string; grnNumb
 
 function SyncToServer() {
   const store = useWMSStore;
+  const tokenRef = useRef<string | null>(null);
+  const isPullingRef = useRef(false);
+  const lastPushRef = useRef(0);
+
+  useEffect(() => {
+    const token = localStorage.getItem('wms_token');
+    tokenRef.current = token;
+  }, []);
 
   const pushToServer = () => {
-    const token = localStorage.getItem('wms_token');
+    const token = tokenRef.current || localStorage.getItem('wms_token');
     if (!token) return;
-    const s = store.getState();
+    const s = useWMSStore.getState();
     const itemsWithQty = s.masterItems.map((item) => {
       const availableQty = s.batchLedger.filter((b) => b.itemId === item.id).reduce((sum, b) => sum + b.balance, 0);
       return { ...item, _availableQty: availableQty };
@@ -77,6 +96,7 @@ function SyncToServer() {
       body: JSON.stringify({
         masterItems: itemsWithQty,
         employees: s.employees,
+        categories: (s as any).categories || ['PPE', 'Chemical', 'Spare Parts', 'Lubricant', 'Consumable', 'Stationery', 'Quality'],
         stockInRecords: s.stockInRecords,
         stockOutRecords: s.stockOutRecords,
         batchLedger: s.batchLedger,
@@ -85,6 +105,9 @@ function SyncToServer() {
         users: s.users,
         stockAdjustments: s.stockAdjustments,
         auditTrail: s.auditTrail,
+        jobMaterials: s.jobMaterials || [],
+        quarantineMaterials: (s as any).quarantineMaterials || [],
+        clientMaterials: (s as any).clientMaterials || [],
         alertEmail: s.alertEmail,
         batchSequence: s.batchSequence,
         grnSequence: s.grnSequence,
@@ -102,8 +125,9 @@ function SyncToServer() {
   };
 
   const pullFromServer = () => {
-    const token = localStorage.getItem('wms_token');
+    const token = tokenRef.current || localStorage.getItem('wms_token');
     if (!token) return;
+    isPullingRef.current = true;
     fetch('/api/full-sync', {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -117,7 +141,7 @@ function SyncToServer() {
         return r.json();
       })
       .then((data) => {
-        if (!data || data.error) return;
+        if (!data || data.error) { isPullingRef.current = false; return; }
         const s = store.getState();
         const deleted = new Set([...(s.deletedIds || []), ...(data.deletedIds || [])]);
 
@@ -170,12 +194,36 @@ function SyncToServer() {
           grnSequence: Math.max(fresh.grnSequence, data.grnSequence || 1),
           issueSequence: Math.max(fresh.issueSequence, data.issueSequence || 1),
           adjustmentSequence: Math.max(fresh.adjustmentSequence, data.adjustmentSequence || 1),
+          jobMaterials: mergeArrayById(s.jobMaterials || [], data.jobMaterials || []),
+          quarantineMaterials: mergeArrayById((s as any).quarantineMaterials || [], data.quarantineMaterials || []),
+          clientMaterials: mergeArrayById((s as any).clientMaterials || [], data.clientMaterials || []),
         });
+        isPullingRef.current = false;
       })
-      .catch(() => {});
+      .catch(() => { isPullingRef.current = false; });
   };
 
   useEffect(() => {
+    const unsub = useWMSStore.subscribe((state, prevState) => {
+      if (isPullingRef.current) return;
+      const now = Date.now();
+      if (now - lastPushRef.current < 8000) return;
+      if (JSON.stringify(state.masterItems) !== JSON.stringify(prevState.masterItems) ||
+          JSON.stringify(state.employees) !== JSON.stringify(prevState.employees) ||
+          JSON.stringify(state.stockInRecords) !== JSON.stringify(prevState.stockInRecords) ||
+          JSON.stringify(state.stockOutRecords) !== JSON.stringify(prevState.stockOutRecords) ||
+          JSON.stringify(state.batchLedger) !== JSON.stringify(prevState.batchLedger) ||
+          JSON.stringify(state.jobs) !== JSON.stringify(prevState.jobs) ||
+          JSON.stringify(state.inventoryBalances) !== JSON.stringify(prevState.inventoryBalances) ||
+          JSON.stringify((state as any).quarantineMaterials) !== JSON.stringify((prevState as any).quarantineMaterials) ||
+          JSON.stringify((state as any).clientMaterials) !== JSON.stringify((prevState as any).clientMaterials) ||
+          JSON.stringify((state as any).jobMaterials) !== JSON.stringify((prevState as any).jobMaterials) ||
+          JSON.stringify((state as any).stockAdjustments) !== JSON.stringify((prevState as any).stockAdjustments)) {
+        lastPushRef.current = now;
+        pushToServer();
+      }
+    });
+
     pullFromServer();
 
     const token = localStorage.getItem('wms_token');
@@ -205,6 +253,7 @@ function SyncToServer() {
     }, 15000);
 
     return () => {
+      unsub();
       clearInterval(pushInterval);
       clearInterval(pullInterval);
       eventSource?.close();
@@ -259,16 +308,19 @@ export default function App() {
 
   if (!user) {
     return (
+      <ErrorBoundary>
       <BrowserRouter>
         <Routes>
           <Route path="/request-stock" element={<PublicStockOutForm />} />
           <Route path="*" element={<LoginPage onLogin={handleLogin} />} />
         </Routes>
       </BrowserRouter>
+      </ErrorBoundary>
     );
   }
 
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <SyncToServer />
       <Routes>
@@ -287,6 +339,8 @@ export default function App() {
                 <Route path="/inventory" element={<InventoryControl />} />
                 <Route path="/archived-items" element={<ArchivedItems />} />
                 <Route path="/jobs" element={<Jobs />} />
+                <Route path="/job-materials" element={<JobMaterials />} />
+                <Route path="/quarantine-materials" element={<QuarantineMaterials />} />
                 <Route path="/ppe-tracker" element={<PPETracker />} />
                 <Route path="/stationery-tracker" element={<StationeryTracker />} />
                 <Route path="/job-material-tracker" element={<JobMaterialTracker />} />
@@ -308,5 +362,6 @@ export default function App() {
         </Route>
       </Routes>
     </BrowserRouter>
+    </ErrorBoundary>
   );
 }
