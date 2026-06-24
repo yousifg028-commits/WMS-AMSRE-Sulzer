@@ -208,7 +208,7 @@ function SyncToServer() {
     const unsub = useWMSStore.subscribe((state, prevState) => {
       if (isPullingRef.current) return;
       const now = Date.now();
-      if (now - lastPushRef.current < 8000) return;
+      if (now - lastPushRef.current < 2000) return;
       if (JSON.stringify(state.masterItems) !== JSON.stringify(prevState.masterItems) ||
           JSON.stringify(state.employees) !== JSON.stringify(prevState.employees) ||
           JSON.stringify(state.stockInRecords) !== JSON.stringify(prevState.stockInRecords) ||
@@ -247,11 +247,11 @@ function SyncToServer() {
 
     const pushInterval = setInterval(() => {
       pushToServer();
-    }, 5000);
+    }, 2000);
 
     const pullInterval = setInterval(() => {
       pullFromServer();
-    }, 15000);
+    }, 3000);
 
     return () => {
       unsub();
