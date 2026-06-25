@@ -526,7 +526,9 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
       var existing = map[key];
       if (!existing) {
         map[key] = item;
-      } else if (item.createdAt && existing.createdAt && item.createdAt > existing.createdAt) {
+      } else if (item.updatedAt && existing.updatedAt && item.updatedAt > existing.updatedAt) {
+        map[key] = item;
+      } else if (!existing.updatedAt && !item.updatedAt && item.createdAt && existing.createdAt && item.createdAt > existing.createdAt) {
         map[key] = item;
       }
     });
