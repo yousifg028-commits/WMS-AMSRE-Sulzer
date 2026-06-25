@@ -48,15 +48,19 @@ interface User {
   fullName: string;
 }
 
-function mergeArrayById<T extends { id: string; updatedAt?: string }>(local: T[], server: T[]): T[] {
+function mergeArrayById<T extends { id: string; updatedAt?: string; lastUpdated?: string }>(local: T[], server: T[]): T[] {
   const map = new Map<string, T>();
   for (const item of local) map.set(item.id, item);
   for (const item of server) {
     const existing = map.get(item.id);
     if (!existing) {
       map.set(item.id, item);
-    } else if (item.updatedAt && existing.updatedAt && item.updatedAt > existing.updatedAt) {
-      map.set(item.id, item);
+    } else {
+      const clientTime = item.updatedAt || (item as any).lastUpdated || '';
+      const serverTime = existing.updatedAt || (existing as any).lastUpdated || '';
+      if (clientTime && serverTime && clientTime > serverTime) {
+        map.set(item.id, item);
+      }
     }
   }
   return Array.from(map.values());
@@ -183,6 +187,10 @@ function SyncToServer() {
 
         const fresh = store.getState();
         const newAuditTrail = mergeStockRecords(fresh.auditTrail, data.auditTrail || [], 'id');
+
+        const localInvFiltered = fresh.inventoryBalances.filter((b: { id: string }) => !deleted.has(b.id));
+        const serverInvFiltered = (data.inventoryBalances || []).filter((b: { id: string }) => !deleted.has(b.id));
+        const newInventoryBalances = mergeArrayById(localInvFiltered, serverInvFiltered);
         const stockOutFiltered = fresh.stockOutRecords.filter((r: { id: string }) => !deleted.has(r.id));
 
         useWMSStore.setState({
@@ -193,6 +201,7 @@ function SyncToServer() {
           jobs: newJobs,
           stockAdjustments: newStockAdjustments,
           stockOutRecords: stockOutFiltered,
+          inventoryBalances: newInventoryBalances,
           auditTrail: newAuditTrail,
           deletedIds: Array.from(deleted),
           alertEmail: data.alertEmail || fresh.alertEmail,
