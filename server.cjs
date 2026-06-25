@@ -508,8 +508,12 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
       var existing = map[item.id];
       if (!existing) {
         map[item.id] = item;
-      } else if (item.updatedAt && existing.updatedAt && item.updatedAt > existing.updatedAt) {
-        map[item.id] = item;
+      } else {
+        var clientTime = item.updatedAt || item.lastUpdated || '';
+        var serverTime = existing.updatedAt || existing.lastUpdated || '';
+        if (clientTime && serverTime && clientTime > serverTime) {
+          map[item.id] = item;
+        }
       }
     });
     return Object.values(map);
