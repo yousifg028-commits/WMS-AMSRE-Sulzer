@@ -62,11 +62,16 @@ function mergeArrayById<T extends { id: string; updatedAt?: string }>(local: T[]
   return Array.from(map.values());
 }
 
-function mergeStockRecords<T extends { id: string; issueNumber?: string; grnNumber?: string; createdAt?: string }>(local: T[], server: T[], key: keyof T): T[] {
+function mergeStockRecords<T extends { id: string; issueNumber?: string; grnNumber?: string; createdAt?: string; updatedAt?: string }>(local: T[], server: T[], key: keyof T): T[] {
   const map = new Map<string, T>();
   for (const item of local) map.set(String(item[key]), item);
   for (const item of server) {
-    if (!map.has(String(item[key]))) map.set(String(item[key]), item);
+    const existing = map.get(String(item[key]));
+    if (!existing) {
+      map.set(String(item[key]), item);
+    } else if (item.updatedAt && (existing as any).updatedAt && item.updatedAt > (existing as any).updatedAt) {
+      map.set(String(item[key]), item);
+    }
   }
   return Array.from(map.values());
 }
