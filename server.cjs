@@ -459,7 +459,7 @@ app.post('/api/public/sync-data', authMiddleware, function(req, res) {
 app.get('/api/full-sync', authMiddleware, function(req, res) {
   var deletedSet = new Set(persistedData.deletedIds || []);
   function filterDeleted(arr) {
-    return (arr || []).filter(function(item) { return !deletedSet.has(item.id); });
+    return (arr || []).filter(function(item) { return !deletedSet.has(item.id) && !deletedSet.has(item.itemId); });
   }
   res.json({
     masterItems: filterDeleted(persistedData.masterItems || []).slice().sort(function(a, b) { if (a.category !== b.category) return a.category.localeCompare(b.category); return (a.itemCode || '').localeCompare(b.itemCode || ''); }),
@@ -495,16 +495,20 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   var mergedDeleted = Array.from(new Set(serverDeleted.concat(clientDeleted)));
 
   function filterDeleted(arr) {
-    return (arr || []).filter(function(item) { return mergedDeleted.indexOf(item.id) === -1; });
+    return (arr || []).filter(function(item) { return mergedDeleted.indexOf(item.id) === -1 && mergedDeleted.indexOf(item.itemId) === -1; });
+  }
+
+  function isNotDeleted(item) {
+    return mergedDeleted.indexOf(item.id) === -1 && mergedDeleted.indexOf(item.itemId) === -1;
   }
 
   function mergeById(serverArr, clientArr) {
     var map = {};
     (serverArr || []).forEach(function(item) {
-      if (mergedDeleted.indexOf(item.id) === -1) map[item.id] = item;
+      if (isNotDeleted(item)) map[item.id] = item;
     });
     (clientArr || []).forEach(function(item) {
-      if (mergedDeleted.indexOf(item.id) !== -1) return;
+      if (!isNotDeleted(item)) return;
       var existing = map[item.id];
       if (!existing) {
         map[item.id] = item;
@@ -522,10 +526,10 @@ app.post('/api/full-sync', authMiddleware, function(req, res) {
   function mergeByField(serverArr, clientArr, field) {
     var map = {};
     (serverArr || []).forEach(function(item) {
-      if (mergedDeleted.indexOf(item.id) === -1) map[item[field]] = item;
+      if (isNotDeleted(item)) map[item[field]] = item;
     });
     (clientArr || []).forEach(function(item) {
-      if (mergedDeleted.indexOf(item.id) !== -1) return;
+      if (!isNotDeleted(item)) return;
       var key = item[field];
       var existing = map[key];
       if (!existing) {
