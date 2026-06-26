@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings as SettingsIcon, Save, Bell, Database, Globe, Mail, FileSpreadsheet, Check, X, RefreshCw } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Bell, Database, Globe, Mail, FileSpreadsheet, Check, X, RefreshCw, Download } from 'lucide-react';
 import { useWMSStore } from '../store';
 import { GoogleSheetsSync } from '../utils/googleSheetsSync';
 
@@ -314,6 +314,38 @@ export default function SettingsPage() {
                 <li>Click "Test Connection" then "Push to Sheets"</li>
               </ol>
             </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900 mb-4">
+            <FileSpreadsheet className="w-4 h-4" /> Excel Export
+          </h3>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">
+              Download all warehouse operations as an Excel file. The file is also auto-saved on the server after every operation.
+            </p>
+            <button
+              onClick={async () => {
+                const token = localStorage.getItem('wms_token');
+                const r = await fetch('/api/export-excel', { headers: { Authorization: `Bearer ${token}` } });
+                if (r.ok) {
+                  const blob = await r.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'wms-operations.xlsx';
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Download className="w-4 h-4" /> Download Excel File
+            </button>
+            <p className="text-xs text-gray-400">
+              File saved at: wms/wms-operations.xlsx
+            </p>
           </div>
         </div>
 

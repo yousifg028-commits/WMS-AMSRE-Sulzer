@@ -9,10 +9,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs');
+const XLSX = require('xlsx');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'wms-data.json');
+const EXCEL_FILE = path.join(__dirname, 'wms-operations.xlsx');
 const GOOGLE_SHEET_URL = process.env.GOOGLE_SHEET_URL || 'https://script.google.com/macros/s/AKfycbx7puscv5jMys7WmVLh4EOYSNRof4yOSoTuq7bhgnDqtR7e0X_VJqDZyglgj8NGUjWF8A/exec';
 
 app.use(cors({
@@ -69,9 +71,78 @@ function saveData(extra) {
     persistedData.stockOutSequence = stockOutSequence;
     persistedData.requestSequence = requestSequence;
     fs.writeFileSync(DATA_FILE, JSON.stringify(persistedData, null, 2));
+    saveToExcel();
     notifySSE();
     syncToGoogleSheetDebounced();
   } catch(e) { console.error('saveData error:', e.message); }
+}
+
+function saveToExcel() {
+  try {
+    var wb = XLSX.utils.book_new();
+
+    // Master Items
+    var items = (persistedData.masterItems || []).map(function(i) {
+      return { 'Item Code': i.itemCode, 'Item Name': i.itemName, 'Category': i.category, 'Unit': i.unit, 'Status': i.status, 'Location': i.location || '', 'Min Stock': i.minStock || 0, 'Max Stock': i.maxStock || 0, 'Tracker Group': i.trackerGroup || '', 'Expiry Tracking': i.expiryTracking ? 'Yes' : 'No' };
+    });
+    if (items.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(items), 'Master Items');
+
+    // Stock In
+    var stockIn = (persistedData.stockInRecords || []).map(function(s) {
+      return { 'GRN Number': s.grnNumber, 'Item Code': s.itemCode, 'Item Name': s.itemName, 'Quantity': s.quantity, 'Unit': s.unit, 'Supplier': s.supplier || '', 'Receipt Date': s.receiptDate ? new Date(s.receiptDate).toLocaleDateString() : '', 'Batch ID': s.batchId || '', 'Expiry Date': s.expiryDate || '', 'Created By': s.createdBy || '', 'Remarks': s.remarks || '' };
+    });
+    if (stockIn.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stockIn), 'Stock In');
+
+    // Stock Out
+    var stockOut = (persistedData.stockOutRecords || []).map(function(s) {
+      return { 'Issue Number': s.issueNumber, 'Item Code': s.itemCode, 'Item Name': s.itemName, 'Quantity': s.quantity, 'Unit': s.unit, 'Issued To': s.issuedTo || '', 'Job Number': s.jobNumber || '', 'Issue Date': s.issueDate ? new Date(s.issueDate).toLocaleDateString() : '', 'Batch ID': s.batchId || '', 'Issued By': s.issuedBy || '', 'Remarks': s.remarks || '' };
+    });
+    if (stockOut.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stockOut), 'Stock Out');
+
+    // Batch Ledger
+    var batches = (persistedData.batchLedger || []).map(function(b) {
+      return { 'Batch ID': b.batchId, 'Item Code': b.itemCode, 'Item Name': b.itemName, 'Quantity In': b.quantityIn, 'Quantity Out': b.quantityOut, 'Balance': b.balance, 'Receipt Date': b.receiptDate ? new Date(b.receiptDate).toLocaleDateString() : '', 'Expiry Date': b.expiryDate || '', 'Supplier': b.supplier || '' };
+    });
+    if (batches.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(batches), 'Batch Ledger');
+
+    // Inventory Balances
+    var inv = (persistedData.inventoryBalances || []).map(function(b) {
+      return { 'Item Code': b.itemCode, 'Item Name': b.itemName, 'Total Quantity': b.totalQuantity, 'Available': b.availableQuantity, 'Reserved': b.reservedQuantity || 0, 'Last Updated': b.lastUpdated ? new Date(b.lastUpdated).toLocaleDateString() : '' };
+    });
+    if (inv.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(inv), 'Inventory Balances');
+
+    // Employees
+    var emps = (persistedData.employees || []).map(function(e) {
+      return { 'Name': e.name, 'Iqama': e.iqama || '', 'Department': e.department || '', 'Job Title': e.jobTitle || '', 'Nationality': e.nationality || '', 'Phone': e.phone || '', 'Status': e.status || 'Active' };
+    });
+    if (emps.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(emps), 'Employees');
+
+    // Stock Adjustments
+    var adjs = (persistedData.stockAdjustments || []).map(function(a) {
+      return { 'Adj Number': a.adjustmentNumber, 'Item Code': a.itemCode, 'Item Name': a.itemName, 'Type': a.adjustmentType, 'Quantity': a.quantity, 'Reason': a.reason || '', 'Date': a.date ? new Date(a.date).toLocaleDateString() : '', 'Adjusted By': a.adjustedBy || '' };
+    });
+    if (adjs.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(adjs), 'Adjustments');
+
+    // Jobs
+    var jobs = (persistedData.jobs || []).map(function(j) {
+      return { 'Job Number': j.jobNumber || j.id, 'Job Name': j.jobName || j.name || '', 'Client': j.client || '', 'Status': j.status || '', 'Start Date': j.startDate || '', 'End Date': j.endDate || '' };
+    });
+    if (jobs.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(jobs), 'Jobs');
+
+    // Audit Trail
+    var audit = (persistedData.auditTrail || []).map(function(a) {
+      return { 'Action': a.action || '', 'Type': a.type || '', 'Details': a.details || a.description || '', 'User': a.user || a.userId || '', 'Date': a.date ? new Date(a.date).toLocaleDateString() : '', 'Time': a.date ? new Date(a.date).toLocaleTimeString() : '' };
+    });
+    if (audit.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(audit), 'Audit Trail');
+
+    // If no sheets were added, add a summary sheet
+    if (wb.SheetNames.length === 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{ 'Status': 'No data yet', 'Date': new Date().toLocaleDateString() }]), 'Summary');
+    }
+
+    XLSX.writeFile(wb, EXCEL_FILE);
+    console.log('  Excel saved: ' + EXCEL_FILE);
+  } catch(e) { console.error('saveToExcel error:', e.message); }
 }
 
 var persistedData = loadData() || { extraUsers: [] };
@@ -902,6 +973,19 @@ app.get('/api/diag', function(req, res) {
       clearTimeout(timeout);
       res.json({ googleSheetUrl: GOOGLE_SHEET_URL, error: e.message });
     });
+});
+
+app.get('/api/export-excel', authMiddleware, function(req, res) {
+  try {
+    saveToExcel();
+    if (fs.existsSync(EXCEL_FILE)) {
+      res.setHeader('Content-Disposition', 'attachment; filename=wms-operations.xlsx');
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      fs.createReadStream(EXCEL_FILE).pipe(res);
+    } else {
+      res.status(500).json({ error: 'Excel file not created' });
+    }
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.use(function(req, res) {
